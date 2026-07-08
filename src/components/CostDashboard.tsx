@@ -32,7 +32,7 @@ type MaterialSortDirection = "asc" | "desc";
 export function CostDashboard({ comparison, selectedCategory, onInspectRows }: Props) {
   return (
     <div className="reveal-in grid gap-4">
-      <div className="grid gap-3 xl:grid-cols-[0.8fr_1.3fr_0.9fr]">
+      <div className="grid gap-3 xl:grid-cols-[0.8fr_1.4fr]">
         <section className={PANEL_CLASS}>
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -94,9 +94,9 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
         ) : (
           <CategoryChart comparison={comparison} onInspectRows={onInspectRows} />
         )}
-
-        <CostStructurePie comparison={comparison} selectedCategory={selectedCategory} onInspectRows={onInspectRows} />
       </div>
+
+      <SupplierCostStructurePies comparison={comparison} selectedCategory={selectedCategory} onInspectRows={onInspectRows} />
 
       <section className={PANEL_CLASS}>
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -116,74 +116,117 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
   );
 }
 
-function CostStructurePie({ comparison, selectedCategory, onInspectRows }: Props) {
-  const pieRows = selectedCategory
-    ? comparison.materialComparisons
-        .map((item) => ({
-          name: `${item.productName} / ${item.materialName}`,
-          value: item.rows.reduce((sum, row) => sum + row.amount, 0),
-          rows: item.rows
-        }))
-        .filter((item) => item.value > 0)
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 12)
-    : comparison.categoryComparison
-        .map((item) => ({
-          name: item.category,
-          value: item.totalAmount,
-          rows: item.rows
-        }))
-        .filter((item) => item.value > 0);
-  const total = pieRows.reduce((sum, item) => sum + item.value, 0);
-
+function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows }: Props) {
   return (
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-ink">{selectedCategory ? `${selectedCategory}物料占比` : "成本结构占比"}</h2>
+          <h2 className="text-sm font-semibold text-ink">供应商成本结构占比</h2>
           <p className="mt-1 text-xs text-slate-500">
-            {selectedCategory ? "查看该品类下各物料金额占比" : "查看各品类占当前总成本比例"}
+            {selectedCategory ? `按供应商查看 ${selectedCategory} 下物料金额占比` : "按供应商分别查看各品类占总成本比例"}
           </p>
         </div>
         <span className="rounded-full bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
-          {formatMoney(total)}
+          {comparison.activeSuppliers.length} 家供应商
         </span>
       </div>
-      <div className="hairline-grid rounded-[18px] border border-slate-200 bg-slate-50/70 p-3">
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Tooltip
-                formatter={(value, _name, item) => {
-                  const amount = Number(value);
-                  const percent = total > 0 ? amount / total : 0;
-                  return [`${formatMoney(amount)} / ${formatPercent(percent)}`, item.name];
-                }}
-              />
-              <Pie
-                data={pieRows}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={48}
-                outerRadius={82}
-                paddingAngle={2}
-                onClick={(data) => {
-                  const rows = Array.isArray(data.rows) ? data.rows : [];
-                  onInspectRows(rows, `${selectedCategory || "成本结构"}占比来源：${String(data.name ?? "")}`);
-                }}
-              >
-                {pieRows.map((entry, index) => (
-                  <Cell key={entry.name} fill={STRUCTURE_COLORS[index % STRUCTURE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Legend layout="vertical" align="right" verticalAlign="middle" iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+
+      <div className="grid gap-3 xl:grid-cols-3">
+        {comparison.activeSuppliers.map((supplier) => (
+          <SupplierPieCard
+            key={supplier}
+            supplier={supplier}
+            comparison={comparison}
+            selectedCategory={selectedCategory}
+            onInspectRows={onInspectRows}
+          />
+        ))}
       </div>
-      {pieRows.length === 0 && <p className="mt-2 text-xs text-slate-500">当前筛选范围内暂无可计算占比的数据。</p>}
+      {comparison.activeSuppliers.length === 0 && <p className="text-xs text-slate-500">上传供应商 BOM 后可查看成本结构占比。</p>}
     </section>
   );
+}
+
+function SupplierPieCard({
+  supplier,
+  comparison,
+  selectedCategory,
+  onInspectRows
+}: Props & { supplier: string }) {
+  const supplierRows = comparison.filteredRows.filter((row) => row.supplierName === supplier);
+  const pieRows = selectedCategory
+    ? buildSupplierMaterialPieRows(supplierRows)
+    : buildSupplierCategoryPieRows(supplierRows);
+  const total = pieRows.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <div className="hairline-grid rounded-[18px] border border-slate-200 bg-slate-50/70 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-ink">{supplier}</h3>
+          <p className="text-xs text-slate-500">{formatMoney(total)}</p>
+        </div>
+        <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+          {pieRows.length} 项
+        </span>
+      </div>
+      <div className="h-56">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Tooltip
+              formatter={(value, _name, item) => {
+                const amount = Number(value);
+                const percent = total > 0 ? amount / total : 0;
+                return [`${formatMoney(amount)} / ${formatPercent(percent)}`, item.name];
+              }}
+            />
+            <Pie
+              data={pieRows}
+              dataKey="value"
+              nameKey="name"
+              innerRadius={42}
+              outerRadius={74}
+              paddingAngle={2}
+              onClick={(data) => {
+                const rows = Array.isArray(data.rows) ? data.rows : [];
+                onInspectRows(rows, `${supplier}成本结构来源：${String(data.name ?? "")}`);
+              }}
+            >
+              {pieRows.map((entry, index) => (
+                <Cell key={entry.name} fill={STRUCTURE_COLORS[index % STRUCTURE_COLORS.length]} />
+              ))}
+            </Pie>
+            <Legend layout="vertical" align="right" verticalAlign="middle" iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      {pieRows.length === 0 && <p className="mt-2 text-xs text-slate-500">当前筛选范围内暂无该供应商占比数据。</p>}
+    </div>
+  );
+}
+
+function buildSupplierCategoryPieRows(rows: CanonicalBomRow[]) {
+  const groups = new Map<string, { name: string; value: number; rows: CanonicalBomRow[] }>();
+  rows.forEach((row) => {
+    const category = normalizeCostCategory(row.category, row.materialName);
+    const current = groups.get(category) ?? { name: category, value: 0, rows: [] };
+    current.value += row.amount;
+    current.rows.push(row);
+    groups.set(category, current);
+  });
+  return Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
+}
+
+function buildSupplierMaterialPieRows(rows: CanonicalBomRow[]) {
+  const groups = new Map<string, { name: string; value: number; rows: CanonicalBomRow[] }>();
+  rows.forEach((row) => {
+    const name = `${row.productName || "未命名产品"} / ${row.materialName}`;
+    const current = groups.get(name) ?? { name, value: 0, rows: [] };
+    current.value += row.amount;
+    current.rows.push(row);
+    groups.set(name, current);
+  });
+  return Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value).slice(0, 12);
 }
 
 function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCategory">) {
