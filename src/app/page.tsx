@@ -32,6 +32,8 @@ export default function Home() {
     () => comparison.filteredRows.reduce((sum, row) => sum + row.dataIssues.length, 0),
     [comparison.filteredRows]
   );
+  const materialCount = comparison.materialComparisons.length;
+  const activeCategoryLabel = filters.category || "全部品类";
   const visibleRows = detailSelection?.rows ?? comparison.filteredRows;
 
   const refresh = useCallback(async () => {
@@ -136,28 +138,48 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f6f9]">
+    <main className="min-h-screen overflow-x-hidden bg-transparent">
       <div className="mx-auto flex w-full max-w-[1520px] flex-col gap-4 px-4 py-4">
-        <header className="border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <header className="app-surface reveal-in overflow-hidden p-4">
+          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
             <div>
-              <p className="text-xs font-semibold uppercase text-brand">AI Cost Audit / MVP</p>
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                <span className="border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-brand">MVP 半自动</span>
+                <span className="border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-accent">
+                  <span className="status-pulse mr-2 inline-block h-2 w-2 bg-accent text-accent" />
+                  本地运行中
+                </span>
+              </div>
               <h1 className="mt-1 text-2xl font-bold tracking-normal text-ink">AI 成本核验平台</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                面向多供应商 BOM 的成本对比工作台：上传、筛选、品类可视化、物料级对比和来源明细集中在同一页面。
+              </p>
             </div>
-            <p className="max-w-3xl text-sm leading-6 text-slate-600">
-              面向多供应商 BOM 的成本对比工作台：上传、筛选、品类可视化、物料级对比和来源明细集中在同一页面。
-            </p>
+            <div className="grid grid-cols-3 border border-slate-200 bg-slate-50 text-center text-xs text-slate-500">
+              <div className="border-r border-slate-200 p-3">
+                <p className="text-lg font-bold text-ink">{comparison.suppliers.length}</p>
+                <p>供应商库</p>
+              </div>
+              <div className="border-r border-slate-200 p-3">
+                <p className="text-lg font-bold text-ink">{activeCategoryLabel}</p>
+                <p>当前品类</p>
+              </div>
+              <div className="p-3">
+                <p className="text-lg font-bold text-ink">{materialCount}</p>
+                <p>可比物料</p>
+              </div>
+            </div>
           </div>
         </header>
 
-        <form onSubmit={handleUpload} className="border border-slate-200 bg-white p-4 shadow-sm">
+        <form onSubmit={handleUpload} className="app-surface reveal-in stagger-1 p-4">
           <div className="grid gap-3 xl:grid-cols-[180px_170px_1.5fr_auto_auto_auto]">
             <label className="block">
               <span className="text-xs font-semibold text-slate-600">供应商</span>
               <input
                 value={supplierName}
                 onChange={(event) => setSupplierName(event.target.value)}
-                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-brand focus:ring-2 focus:ring-blue-100"
                 placeholder="留空从文件名识别"
               />
             </label>
@@ -167,7 +189,7 @@ export default function Home() {
               <select
                 value={kind}
                 onChange={(event) => setKind(event.target.value as BomFileKind)}
-                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-brand focus:ring-2 focus:ring-blue-100"
               >
                 <option value="supplier_quote">供应商报价</option>
                 <option value="historical_bom">历史 BOM</option>
@@ -181,27 +203,27 @@ export default function Home() {
                 multiple
                 accept=".xlsx,.xls,.csv"
                 onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-                className="mt-1 h-9 w-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1 text-sm file:mr-3 file:border-0 file:bg-slate-200 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-700"
+                className="mt-1 h-9 w-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1 text-sm transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-brand file:mr-3 file:border-0 file:bg-slate-200 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-700"
               />
             </label>
 
             <button
               disabled={isUploading}
-              className="mt-5 h-9 bg-brand px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="motion-lift mt-5 h-9 bg-brand px-4 text-sm font-semibold text-white shadow-sm active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isUploading ? "解析中..." : "上传解析"}
             </button>
             <button
               type="button"
               onClick={exportCsv}
-              className="mt-5 h-9 bg-accent px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800"
+              className="motion-lift mt-5 h-9 bg-accent px-4 text-sm font-semibold text-white shadow-sm active:scale-[0.98]"
             >
               导出 CSV
             </button>
             <button
               type="button"
               onClick={handleClear}
-              className="mt-5 h-9 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="motion-lift mt-5 h-9 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 active:scale-[0.98]"
             >
               清空
             </button>
@@ -225,13 +247,13 @@ export default function Home() {
           )}
         </form>
 
-        <section className="grid gap-3 lg:grid-cols-[repeat(3,minmax(0,1fr))]">
+        <section className="reveal-in stagger-2 grid gap-3 lg:grid-cols-[repeat(3,minmax(0,1fr))]">
           <Metric label="参与供应商" value={comparison.activeSuppliers.length.toString()} />
           <Metric label="当前明细行" value={comparison.filteredRows.length.toString()} />
           <Metric label="数据异常" value={issueCount.toString()} tone={issueCount > 0 ? "danger" : "normal"} />
         </section>
 
-        <section className="border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="app-surface reveal-in stagger-3 p-4">
           <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_2fr_auto]">
             <div className="block">
               <div className="flex items-center justify-between gap-3">
@@ -244,18 +266,21 @@ export default function Home() {
                   全部
                 </button>
               </div>
-              <div className="mt-1 flex min-h-9 flex-wrap items-center gap-2 border border-slate-300 bg-slate-50 px-2 py-1">
+              <div className="mt-1 flex min-h-10 flex-wrap items-center gap-2 border border-slate-300 bg-slate-50 p-1.5">
                 {comparison.suppliers.map((supplier) => {
                   const checked = filters.supplierNames.length === 0 || filters.supplierNames.includes(supplier);
                   return (
-                    <label key={supplier} className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-700">
+                    <label key={supplier} className="group cursor-pointer text-sm text-slate-700">
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={(event) => setSupplierChecked(supplier, event.target.checked)}
-                        className="h-4 w-4 accent-brand"
+                        className="peer sr-only"
                       />
-                      <span>{supplier}</span>
+                      <span className="motion-lift inline-flex items-center gap-2 border border-slate-200 bg-white px-3 py-1.5 font-semibold peer-checked:border-blue-200 peer-checked:bg-blue-50 peer-checked:text-brand">
+                        <span className={`h-1.5 w-1.5 ${checked ? "bg-brand" : "bg-slate-300"}`} />
+                        {supplier}
+                      </span>
                     </label>
                   );
                 })}
@@ -270,7 +295,7 @@ export default function Home() {
               <select
                 value={filters.category}
                 onChange={(event) => updateFilter("category", event.target.value)}
-                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-brand focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">全部品类</option>
                 {STANDARD_CATEGORIES.map((category) => (
@@ -286,7 +311,7 @@ export default function Home() {
               <input
                 value={filters.materialQuery}
                 onChange={(event) => updateFilter("materialQuery", event.target.value)}
-                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-brand focus:ring-2 focus:ring-blue-100"
                 placeholder="物料名称、标准名或规格"
               />
             </label>
@@ -294,7 +319,7 @@ export default function Home() {
             <button
               type="button"
               onClick={resetFilters}
-              className="mt-5 h-9 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="motion-lift mt-5 h-9 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 active:scale-[0.98]"
             >
               重置筛选
             </button>
@@ -307,7 +332,7 @@ export default function Home() {
           onInspectRows={(selectedRows, title) => setDetailSelection({ rows: selectedRows, title })}
         />
 
-        <section className="border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="app-surface p-4">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前对比明细"}</h2>
@@ -318,7 +343,7 @@ export default function Home() {
             {detailSelection && (
               <button
                 onClick={() => setDetailSelection(null)}
-                className="h-8 border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="motion-lift h-8 border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 active:scale-[0.98]"
               >
                 返回筛选明细
               </button>
@@ -333,9 +358,12 @@ export default function Home() {
 
 function Metric({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "danger" }) {
   return (
-    <div className="border border-slate-200 bg-white p-4 shadow-sm">
+    <div className={`quiet-surface motion-lift p-4 ${tone === "danger" ? "border-red-200 bg-red-50/50" : ""}`}>
       <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className={`mt-2 text-3xl font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <p className={`text-3xl font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
+        <span className={`h-8 w-1.5 ${tone === "danger" ? "bg-danger" : "bg-brand"}`} />
+      </div>
     </div>
   );
 }

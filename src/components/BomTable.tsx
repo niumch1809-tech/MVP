@@ -71,7 +71,7 @@ export function BomTable({ rows }: Props) {
         header: "追溯",
         cell: ({ row }) => (
           <button
-            className="border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="motion-lift border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 active:scale-[0.98]"
             onClick={() => setExpandedRowId(expandedRowId === row.original.id ? null : row.original.id)}
           >
             原始字段
@@ -122,9 +122,14 @@ export function BomTable({ rows }: Props) {
           <tbody>
             {table.getRowModel().rows.map((row) => (
               <Fragment key={row.id}>
-                <tr className="border-b border-slate-100 odd:bg-white even:bg-slate-50/50 hover:bg-blue-50/70">
+                <tr className="border-b border-slate-100 odd:bg-white even:bg-slate-50/50 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-blue-50/70">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="whitespace-nowrap px-3 py-3 text-slate-700">
+                    <td
+                      key={cell.id}
+                      className={`whitespace-nowrap px-3 py-3 text-slate-700 ${
+                        cell.column.id === "materialName" ? "font-semibold text-ink" : ""
+                      }`}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
