@@ -23,6 +23,7 @@ export function BomTable({ rows, priceComparisonsByRowId = {} }: Props) {
   const columns = useMemo<ColumnDef<CanonicalBomRow>[]>(
     () => [
       { accessorKey: "supplierName", header: "供应商" },
+      { accessorKey: "productName", header: "产品" },
       { accessorKey: "sourceFileName", header: "文件" },
       { accessorKey: "rowNumber", header: "原行号" },
       { accessorKey: "partNumber", header: "料号" },

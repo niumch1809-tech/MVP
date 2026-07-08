@@ -29,6 +29,7 @@ export type CanonicalBomRow = {
   sourceFileName: string;
   sheetName: string;
   rowNumber: number;
+  productName: string;
   supplierName: string;
   kind: BomFileKind;
   partNumber: string;
@@ -52,6 +53,7 @@ export type CanonicalBomRow = {
 export type BomFileRecord = {
   id: string;
   fileName: string;
+  productName: string;
   supplierName: string;
   kind: BomFileKind;
   uploadedAt: string;

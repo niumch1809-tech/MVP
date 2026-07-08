@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 
 const uploadSchema = z.object({
   supplierName: z.string().optional(),
+  productName: z.string().optional(),
   kind: z.enum(["supplier_quote", "historical_bom"])
 });
 
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
 
   const parsedMeta = uploadSchema.safeParse({
     supplierName: formData.get("supplierName")?.toString().trim() || undefined,
+    productName: formData.get("productName")?.toString().trim() || undefined,
     kind: formData.get("kind")
   });
 
@@ -48,9 +50,11 @@ export async function POST(request: Request) {
       const fileId = crypto.randomUUID();
       const buffer = Buffer.from(await file.arrayBuffer());
       const supplierName = parsedMeta.data.supplierName || inferSupplierName(file.name);
+      const productName = parsedMeta.data.productName || inferProductName(file.name);
       const record = parseBomWorkbook({
         fileId,
         fileName: file.name,
+        productName,
         supplierName,
         kind: parsedMeta.data.kind as BomFileKind,
         buffer,
@@ -77,4 +81,12 @@ function inferSupplierName(fileName: string): string {
     .replace(/bom|报价|报价格|清单|物料清单/gi, "")
     .replace(/[_-]+/g, " ")
     .trim() || "未命名供应商";
+}
+
+function inferProductName(fileName: string): string {
+  return fileName
+    .replace(/\.(xlsx|xls|csv)$/i, "")
+    .replace(/bom|报价|报价格|清单|物料清单/gi, "")
+    .replace(/[_-]+/g, " ")
+    .trim() || "未命名产品";
 }

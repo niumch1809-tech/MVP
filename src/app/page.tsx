@@ -32,6 +32,7 @@ const NAV_ITEMS: Array<{ id: WorkspaceView; label: string; eyebrow: string }> = 
 
 export default function Home() {
   const [records, setRecords] = useState<BomFileRecord[]>([]);
+  const [productName, setProductName] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [kind, setKind] = useState<BomFileKind>("supplier_quote");
   const [files, setFiles] = useState<File[]>([]);
@@ -48,6 +49,7 @@ export default function Home() {
   const [priceSourceMessage, setPriceSourceMessage] = useState("");
   const [filters, setFilters] = useState<CostFilters>({
     supplierNames: [],
+    productName: "",
     category: "",
     materialQuery: ""
   });
@@ -89,6 +91,7 @@ export default function Home() {
     setDetailSelection(null);
 
     const formData = new FormData();
+    formData.set("productName", productName);
     formData.set("supplierName", supplierName);
     formData.set("kind", kind);
     files.forEach((file) => formData.append("files", file));
@@ -128,7 +131,7 @@ export default function Home() {
     await refresh();
   }
 
-  function updateFilter(key: "category" | "materialQuery", value: string) {
+  function updateFilter(key: "productName" | "category" | "materialQuery", value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
     setDetailSelection(null);
   }
@@ -154,7 +157,7 @@ export default function Home() {
   }
 
   function resetFilters() {
-    setFilters({ supplierNames: [], category: "", materialQuery: "" });
+    setFilters({ supplierNames: [], productName: "", category: "", materialQuery: "" });
     setDetailSelection(null);
   }
 
@@ -283,6 +286,9 @@ export default function Home() {
                     {selectedSupplierLabel}
                   </span>
                   <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
+                    {filters.productName || "全部产品"}
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
                     {filters.category || "全部品类"}
                   </span>
                 </div>
@@ -303,6 +309,7 @@ export default function Home() {
               files={files}
               kind={kind}
               message={message}
+              productName={productName}
               supplierName={supplierName}
               uploadErrors={uploadErrors}
               isUploading={isUploading}
@@ -310,6 +317,7 @@ export default function Home() {
               onClear={handleClear}
               onFilesChange={setFiles}
               onKindChange={setKind}
+              onProductNameChange={setProductName}
               onSupplierNameChange={setSupplierName}
               onSubmit={handleUpload}
             />
@@ -433,6 +441,7 @@ function UploadView({
   files,
   kind,
   message,
+  productName,
   supplierName,
   uploadErrors,
   isUploading,
@@ -440,12 +449,14 @@ function UploadView({
   onClear,
   onFilesChange,
   onKindChange,
+  onProductNameChange,
   onSupplierNameChange,
   onSubmit
 }: {
   files: File[];
   kind: BomFileKind;
   message: string;
+  productName: string;
   supplierName: string;
   uploadErrors: UploadBomResponse["errors"];
   isUploading: boolean;
@@ -453,13 +464,24 @@ function UploadView({
   onClear: () => void;
   onFilesChange: (files: File[]) => void;
   onKindChange: (kind: BomFileKind) => void;
+  onProductNameChange: (value: string) => void;
   onSupplierNameChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <section className="reveal-in grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
       <form onSubmit={onSubmit} className="app-surface rounded-[28px] p-5">
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-500">产品名称</span>
+            <input
+              value={productName}
+              onChange={(event) => onProductNameChange(event.target.value)}
+              className="mt-2 h-11 w-full rounded-[14px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+              placeholder="例如：庭院灯 A 款"
+            />
+          </label>
+
           <label className="block">
             <span className="text-xs font-semibold text-slate-500">供应商</span>
             <input
@@ -533,10 +555,15 @@ function UploadView({
           {records.slice(0, 8).map((record) => (
             <div key={record.id} className="rounded-[18px] bg-slate-50 p-3 ring-1 ring-slate-200">
               <div className="flex items-center justify-between gap-3">
-                <span className="truncate text-sm font-semibold text-ink">{record.supplierName}</span>
+                <span className="truncate text-sm font-semibold text-ink">{record.productName || "未命名产品"}</span>
                 <span className="text-xs text-slate-500">{record.rowCount} 行</span>
               </div>
-              <p className="mt-1 truncate text-xs text-slate-500">{record.fileName}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">
+                {record.supplierName} · {record.fileName}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400">
+                {new Date(record.uploadedAt).toLocaleString("zh-CN", { hour12: false })}
+              </p>
             </div>
           ))}
           {records.length === 0 && <div className="rounded-[18px] bg-slate-50 p-8 text-center text-sm text-slate-500">暂无解析记录。</div>}
@@ -559,11 +586,11 @@ function FilterPanel({
   onReset: () => void;
   onSelectAllSuppliers: () => void;
   onSupplierChecked: (supplierName: string, checked: boolean) => void;
-  onUpdateFilter: (key: "category" | "materialQuery", value: string) => void;
+  onUpdateFilter: (key: "productName" | "category" | "materialQuery", value: string) => void;
 }) {
   return (
     <section className="app-surface reveal-in rounded-[28px] p-4">
-      <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_2fr_auto]">
+      <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_2fr_auto]">
         <div className="block">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-semibold text-slate-500">供应商筛选</span>
@@ -592,6 +619,22 @@ function FilterPanel({
             {comparison.suppliers.length === 0 && <span className="px-2 text-sm text-slate-400">上传 BOM 后可筛选</span>}
           </div>
         </div>
+
+        <label className="block">
+          <span className="text-xs font-semibold text-slate-500">产品</span>
+          <select
+            value={filters.productName}
+            onChange={(event) => onUpdateFilter("productName", event.target.value)}
+            className="mt-2 h-11 w-full rounded-[16px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+          >
+            <option value="">全部产品</option>
+            {comparison.products.map((product) => (
+              <option key={product} value={product}>
+                {product}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label className="block">
           <span className="text-xs font-semibold text-slate-500">品类</span>
@@ -651,6 +694,7 @@ function MetricCell({ label, value, tone = "normal" }: { label: string; value: s
 
 function toRawCsv(rows: CanonicalBomRow[], marketPriceByRowId: Record<string, MaterialPriceQuoteResponse["comparisons"][number]>): string {
   const headers = [
+    "产品",
     "供应商",
     "文件",
     "原行号",
@@ -672,6 +716,7 @@ function toRawCsv(rows: CanonicalBomRow[], marketPriceByRowId: Record<string, Ma
     {
       const marketPrice = marketPriceByRowId[row.id];
       return [
+      row.productName,
       row.supplierName,
       row.sourceFileName,
       row.rowNumber,
@@ -709,13 +754,14 @@ function getMarketRiskLabel(
 
 function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>): string {
   const supplierHeaders = comparison.activeSuppliers.flatMap((supplier) => [`${supplier}单价`, `${supplier}数量`, `${supplier}金额`]);
-  const headers = ["物料名称", "标准品类", ...supplierHeaders, "最低单价", "最高单价", "差异金额", "差异度", "覆盖供应商"];
+  const headers = ["产品", "物料名称", "标准品类", ...supplierHeaders, "最低单价", "最高单价", "差异金额", "差异度", "覆盖供应商"];
   const body = comparison.materialComparisons.map((item) => {
     const supplierCells = comparison.activeSuppliers.flatMap((supplier) => {
       const point = item.suppliers.find((entry) => entry.supplierName === supplier);
       return [point?.unitPrice ?? "", point?.quantity ?? "", point?.amount ?? ""];
     });
     return [
+      item.productName,
       item.materialName,
       item.category,
       ...supplierCells,

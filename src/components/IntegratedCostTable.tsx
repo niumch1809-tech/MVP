@@ -9,7 +9,7 @@ type Props = {
   onInspectRows: (rows: CanonicalBomRow[], title: string) => void;
 };
 
-type SortKey = "materialName" | "category" | "diffRate" | "diffAmount" | "coverage";
+type SortKey = "productName" | "materialName" | "category" | "diffRate" | "diffAmount" | "coverage";
 type SortDirection = "asc" | "desc";
 
 export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
@@ -30,7 +30,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
       return;
     }
     setSortKey(nextKey);
-    setSortDirection(nextKey === "materialName" || nextKey === "category" ? "asc" : "desc");
+    setSortDirection(nextKey === "productName" || nextKey === "materialName" || nextKey === "category" ? "asc" : "desc");
   }
 
   return (
@@ -49,6 +49,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
         <table className="min-w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 bg-white/95 text-xs text-slate-500 shadow-sm">
             <tr>
+              <SortHeader label="产品" active={sortKey === "productName"} direction={sortDirection} onClick={() => toggleSort("productName")} />
               <SortHeader label="物料" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
               <SortHeader label="标准品类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
               {suppliers.map((supplier) => (
@@ -68,8 +69,9 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-slate-100 bg-white transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-50"
-                onClick={() => onInspectRows(item.rows, `整合表来源：${item.materialName}`)}
+                onClick={() => onInspectRows(item.rows, `整合表来源：${item.productName} / ${item.materialName}`)}
               >
+                <td className="whitespace-nowrap px-3 py-3 text-slate-600">{item.productName}</td>
                 <td className="whitespace-nowrap px-3 py-3 font-semibold text-ink">{item.materialName}</td>
                 <td className="whitespace-nowrap px-3 py-3 text-slate-600">{item.category}</td>
                 {suppliers.map((supplier) => {
@@ -98,7 +100,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={suppliers.length + 7} className="px-3 py-10 text-center text-sm text-slate-500">
+                <td colSpan={suppliers.length + 8} className="px-3 py-10 text-center text-sm text-slate-500">
                   当前没有可输出的整合对比数据。
                 </td>
               </tr>
@@ -141,6 +143,7 @@ function SortHeader({
 
 function compareByKey(a: MaterialComparisonItem, b: MaterialComparisonItem, key: SortKey): number {
   if (key === "materialName") return a.materialName.localeCompare(b.materialName, "zh-CN");
+  if (key === "productName") return a.productName.localeCompare(b.productName, "zh-CN");
   if (key === "category") return a.category.localeCompare(b.category, "zh-CN");
   if (key === "diffRate") return a.diffRate - b.diffRate;
   if (key === "coverage") return a.suppliers.length - b.suppliers.length;

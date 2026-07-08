@@ -4,7 +4,10 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Legend,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -21,6 +24,7 @@ type Props = {
 };
 
 const SUPPLIER_COLORS = ["#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2"];
+const STRUCTURE_COLORS = ["#111827", "#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2", "#64748b", "#14b8a6"];
 const PANEL_CLASS = "app-surface motion-lift p-4";
 type MaterialSortKey = "materialName" | "category" | "minPrice" | "maxPrice" | "diffAmount" | "diffRate" | "coverage";
 type MaterialSortDirection = "asc" | "desc";
@@ -28,7 +32,7 @@ type MaterialSortDirection = "asc" | "desc";
 export function CostDashboard({ comparison, selectedCategory, onInspectRows }: Props) {
   return (
     <div className="reveal-in grid gap-4">
-      <div className="grid gap-3 xl:grid-cols-[0.8fr_1.4fr]">
+      <div className="grid gap-3 xl:grid-cols-[0.8fr_1.3fr_0.9fr]">
         <section className={PANEL_CLASS}>
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -90,6 +94,8 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
         ) : (
           <CategoryChart comparison={comparison} onInspectRows={onInspectRows} />
         )}
+
+        <CostStructurePie comparison={comparison} selectedCategory={selectedCategory} onInspectRows={onInspectRows} />
       </div>
 
       <section className={PANEL_CLASS}>
@@ -107,6 +113,76 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
         <MaterialComparisonTable comparison={comparison} selectedCategory={selectedCategory} onInspectRows={onInspectRows} />
       </section>
     </div>
+  );
+}
+
+function CostStructurePie({ comparison, selectedCategory, onInspectRows }: Props) {
+  const pieRows = selectedCategory
+    ? comparison.materialComparisons
+        .map((item) => ({
+          name: `${item.productName} / ${item.materialName}`,
+          value: item.rows.reduce((sum, row) => sum + row.amount, 0),
+          rows: item.rows
+        }))
+        .filter((item) => item.value > 0)
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 12)
+    : comparison.categoryComparison
+        .map((item) => ({
+          name: item.category,
+          value: item.totalAmount,
+          rows: item.rows
+        }))
+        .filter((item) => item.value > 0);
+  const total = pieRows.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <section className={PANEL_CLASS}>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">{selectedCategory ? `${selectedCategory}物料占比` : "成本结构占比"}</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            {selectedCategory ? "查看该品类下各物料金额占比" : "查看各品类占当前总成本比例"}
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+          {formatMoney(total)}
+        </span>
+      </div>
+      <div className="hairline-grid rounded-[18px] border border-slate-200 bg-slate-50/70 p-3">
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Tooltip
+                formatter={(value, _name, item) => {
+                  const amount = Number(value);
+                  const percent = total > 0 ? amount / total : 0;
+                  return [`${formatMoney(amount)} / ${formatPercent(percent)}`, item.name];
+                }}
+              />
+              <Pie
+                data={pieRows}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={48}
+                outerRadius={82}
+                paddingAngle={2}
+                onClick={(data) => {
+                  const rows = Array.isArray(data.rows) ? data.rows : [];
+                  onInspectRows(rows, `${selectedCategory || "成本结构"}占比来源：${String(data.name ?? "")}`);
+                }}
+              >
+                {pieRows.map((entry, index) => (
+                  <Cell key={entry.name} fill={STRUCTURE_COLORS[index % STRUCTURE_COLORS.length]} />
+                ))}
+              </Pie>
+              <Legend layout="vertical" align="right" verticalAlign="middle" iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      {pieRows.length === 0 && <p className="mt-2 text-xs text-slate-500">当前筛选范围内暂无可计算占比的数据。</p>}
+    </section>
   );
 }
 
@@ -160,6 +236,7 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
   const chartRows = comparison.materialComparisons.slice(0, 40).map((item) => {
     const result: Record<string, string | number | CanonicalBomRow[]> = {
       materialName: item.materialName,
+      productName: item.productName,
       rows: item.rows
     };
     comparison.activeSuppliers.forEach((supplier) => {
@@ -197,7 +274,8 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
                 onClick={(data) => {
                   const rows = Array.isArray(data.rows) ? data.rows : [];
                   const materialName = String(data.materialName ?? "");
-                  onInspectRows(rows, `${selectedCategory}物料来源：${materialName}`);
+                  const productName = String(data.productName ?? "");
+                  onInspectRows(rows, `${selectedCategory}物料来源：${productName} / ${materialName}`);
                 }}
               />
             ))}
@@ -237,6 +315,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
       <table className="min-w-full text-left text-sm">
         <thead className="sticky top-0 bg-white/95 text-xs text-slate-600 shadow-sm">
           <tr>
+            <th className="whitespace-nowrap px-3 py-2 font-semibold">产品</th>
             <SortableHeader label="物料" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
             <SortableHeader label="品类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
             {suppliers.map((supplier) => (
@@ -258,8 +337,9 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-slate-100 odd:bg-white even:bg-slate-50/50 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-blue-50/70"
-                onClick={() => onInspectRows(item.rows, `物料来源明细：${item.materialName}`)}
+                onClick={() => onInspectRows(item.rows, `物料来源明细：${item.productName} / ${item.materialName}`)}
               >
+                <td className="whitespace-nowrap px-3 py-2 text-slate-600">{item.productName}</td>
                 <td className="whitespace-nowrap px-3 py-2 font-medium text-ink">{item.materialName}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-700">{item.category}</td>
                 {suppliers.map((supplier) => {
@@ -289,7 +369,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={suppliers.length + 7} className="px-3 py-6 text-center text-sm text-slate-500">
+              <td colSpan={suppliers.length + 8} className="px-3 py-6 text-center text-sm text-slate-500">
                 当前筛选范围内没有可对比物料。
               </td>
             </tr>

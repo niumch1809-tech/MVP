@@ -6,6 +6,7 @@ import { hasValue, normalizeMaterialName, normalizeUnit, toNumber } from "./norm
 type ParseInput = {
   fileId: string;
   fileName: string;
+  productName: string;
   supplierName: string;
   kind: BomFileKind;
   buffer: Buffer;
@@ -51,6 +52,7 @@ export function parseBomWorkbook(input: ParseInput): BomFileRecord {
   return {
     id: input.fileId,
     fileName: input.fileName,
+    productName: input.productName,
     supplierName: input.supplierName,
     kind: input.kind,
     uploadedAt: new Date().toISOString(),
@@ -113,6 +115,7 @@ function parseWideSupplierRows(input: ParseInput, parsedSheet: ParsedSheet): Can
         sourceFileName: input.fileName,
         sheetName: parsedSheet.sheetName,
         rowNumber: parsedSheet.headerRowIndex + rowIndex + 2,
+        productName: input.productName,
         supplierName: supplierColumn,
         kind: input.kind,
         partNumber: "",
@@ -248,6 +251,7 @@ function toCanonicalRow(
     sourceFileName: input.fileName,
     sheetName: parsedSheet.sheetName,
     rowNumber: parsedSheet.headerRowIndex + index + 2,
+    productName: input.productName,
     supplierName: input.supplierName,
     kind: input.kind,
     partNumber: getString(row, fields.partNumber),
