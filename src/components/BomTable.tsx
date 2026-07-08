@@ -9,14 +9,15 @@ import {
   useReactTable
 } from "@tanstack/react-table";
 import { Fragment, useMemo, useState } from "react";
-import { CanonicalBomRow } from "@/types/bom";
+import { CanonicalBomRow, MaterialPriceComparison } from "@/types/bom";
 import { normalizeCostCategory } from "@/lib/bom/cost-comparison";
 
 type Props = {
   rows: CanonicalBomRow[];
+  priceComparisonsByRowId?: Record<string, MaterialPriceComparison>;
 };
 
-export function BomTable({ rows }: Props) {
+export function BomTable({ rows, priceComparisonsByRowId = {} }: Props) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const columns = useMemo<ColumnDef<CanonicalBomRow>[]>(
@@ -50,6 +51,43 @@ export function BomTable({ rows }: Props) {
           </span>
         )
       },
+      {
+        id: "marketPrice",
+        header: "参考价",
+        cell: ({ row }) => {
+          const comparison = priceComparisonsByRowId[row.original.id];
+          if (!comparison?.referenceUnitPrice) return <span className="text-slate-400">未核价</span>;
+          return (
+            <span>
+              {formatMoney(comparison.referenceUnitPrice)}
+              <span className="ml-1 text-xs text-slate-400">{comparison.currency}</span>
+            </span>
+          );
+        }
+      },
+      {
+        id: "marketGap",
+        header: "行情差异",
+        cell: ({ row }) => {
+          const comparison = priceComparisonsByRowId[row.original.id];
+          if (!comparison || comparison.differenceRate === undefined) return <span className="text-slate-400">-</span>;
+          return (
+            <span className={comparison.differenceRate >= 0 ? "font-semibold text-danger" : "font-semibold text-accent"}>
+              {formatPercent(comparison.differenceRate)}
+            </span>
+          );
+        }
+      },
+      {
+        id: "marketRisk",
+        header: "行情风险",
+        cell: ({ row }) => {
+          const comparison = priceComparisonsByRowId[row.original.id];
+          if (!comparison) return <span className="rounded-full bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-400 ring-1 ring-slate-100">未刷新</span>;
+          const risk = getMarketRiskMeta(comparison);
+          return <span className={`rounded-full px-2 py-1 text-xs font-semibold ring-1 ${risk.className}`}>{risk.label}</span>;
+        }
+      },
       { accessorKey: "remark", header: "备注" },
       {
         id: "issues",
@@ -79,7 +117,7 @@ export function BomTable({ rows }: Props) {
         )
       }
     ],
-    [expandedRowId]
+    [expandedRowId, priceComparisonsByRowId]
   );
 
   const table = useReactTable({
@@ -152,6 +190,13 @@ export function BomTable({ rows }: Props) {
                           ))}
                         </div>
                       )}
+                      {priceComparisonsByRowId[row.original.id] && (
+                        <div className="mb-3 rounded-[16px] bg-blue-50 p-3 text-sm text-slate-700 ring-1 ring-blue-100">
+                          <p className="font-semibold text-ink">材料行情核验</p>
+                          <p className="mt-1">{priceComparisonsByRowId[row.original.id].rule}</p>
+                          <p className="mt-1 text-slate-600">{priceComparisonsByRowId[row.original.id].suggestion}</p>
+                        </div>
+                      )}
                       <pre className="max-h-48 overflow-auto bg-slate-950 p-3 text-xs leading-5 text-slate-100">
                         {JSON.stringify(row.original.originalFields, null, 2)}
                       </pre>
@@ -169,4 +214,17 @@ export function BomTable({ rows }: Props) {
 
 function formatMoney(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : "0.00";
+}
+
+function formatPercent(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString("zh-CN", { style: "percent", maximumFractionDigits: 1 }) : "0%";
+}
+
+function getMarketRiskMeta(comparison: MaterialPriceComparison): { label: string; className: string } {
+  if (comparison.status === "not_found") return { label: "无参考", className: "bg-slate-50 text-slate-500 ring-slate-200" };
+  if (comparison.status === "unit_mismatch") return { label: "单位核验", className: "bg-amber-50 text-warn ring-amber-100" };
+  if (comparison.riskLevel === "high") return { label: "高风险", className: "bg-red-50 text-danger ring-red-100" };
+  if (comparison.riskLevel === "medium") return { label: "需核验", className: "bg-amber-50 text-warn ring-amber-100" };
+  if (comparison.riskLevel === "low") return { label: "轻微偏离", className: "bg-blue-50 text-brand ring-blue-100" };
+  return { label: "接近行情", className: "bg-emerald-50 text-accent ring-emerald-100" };
 }

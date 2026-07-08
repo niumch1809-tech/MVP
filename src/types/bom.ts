@@ -96,3 +96,53 @@ export type AnalysisReport = {
   issues: CostIssue[];
   reportMarkdown: string;
 };
+
+export type MaterialPriceRiskLevel = "high" | "medium" | "low" | "none";
+
+export type MaterialPriceStatus = "matched" | "not_found" | "unit_mismatch";
+
+export type MaterialMarketPrice = {
+  materialName: string;
+  normalizedName: string;
+  category: string;
+  unit: string;
+  currency: string;
+  referenceUnitPrice: number;
+  sourceName: string;
+  sourceKind: "mock" | "external";
+  updatedAt: string;
+  confidence: number;
+  note: string;
+};
+
+export type MaterialPriceComparison = {
+  rowId: string;
+  materialName: string;
+  supplierName: string;
+  supplierUnitPrice: number;
+  referenceUnitPrice?: number;
+  currency: string;
+  differenceAmount?: number;
+  differenceRate?: number;
+  riskLevel: MaterialPriceRiskLevel;
+  status: MaterialPriceStatus;
+  sourceName?: string;
+  sourceKind?: "mock" | "external";
+  updatedAt?: string;
+  rule: string;
+  suggestion: string;
+};
+
+export type MaterialPriceQuoteRequest = {
+  rows: Array<Pick<
+    CanonicalBomRow,
+    "id" | "materialName" | "normalizedName" | "category" | "spec" | "unit" | "unitPrice" | "supplierName" | "currency"
+  >>;
+};
+
+export type MaterialPriceQuoteResponse = {
+  generatedAt: string;
+  sourceName: string;
+  sourceKind: "mock" | "external";
+  comparisons: MaterialPriceComparison[];
+};

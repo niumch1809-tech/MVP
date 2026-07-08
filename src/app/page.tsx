@@ -4,8 +4,15 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { BomTable } from "@/components/BomTable";
 import { CostDashboard } from "@/components/CostDashboard";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
+import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
 import { buildCostComparison, CostFilters, STANDARD_CATEGORIES } from "@/lib/bom/cost-comparison";
-import { BomFileKind, BomFileRecord, CanonicalBomRow, UploadBomResponse } from "@/types/bom";
+import {
+  BomFileKind,
+  BomFileRecord,
+  CanonicalBomRow,
+  MaterialPriceQuoteResponse,
+  UploadBomResponse
+} from "@/types/bom";
 
 type DetailSelection = {
   title: string;
@@ -30,6 +37,9 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [uploadErrors, setUploadErrors] = useState<UploadBomResponse["errors"]>([]);
   const [activeView, setActiveView] = useState<WorkspaceView>("upload");
+  const [isRefreshingMarketPrices, setIsRefreshingMarketPrices] = useState(false);
+  const [marketPriceError, setMarketPriceError] = useState("");
+  const [marketPriceResult, setMarketPriceResult] = useState<MaterialPriceQuoteResponse | null>(null);
   const [filters, setFilters] = useState<CostFilters>({
     supplierNames: [],
     category: "",
@@ -44,6 +54,10 @@ export default function Home() {
     [comparison.filteredRows]
   );
   const visibleRows = detailSelection?.rows ?? comparison.filteredRows;
+  const marketPriceByRowId = useMemo(
+    () => Object.fromEntries((marketPriceResult?.comparisons ?? []).map((item) => [item.rowId, item])),
+    [marketPriceResult]
+  );
   const selectedSupplierLabel =
     filters.supplierNames.length === 0 ? "全部供应商" : filters.supplierNames.join(" / ");
 
@@ -136,6 +150,40 @@ export default function Home() {
   function resetFilters() {
     setFilters({ supplierNames: [], category: "", materialQuery: "" });
     setDetailSelection(null);
+  }
+
+  async function refreshMarketPrices() {
+    setIsRefreshingMarketPrices(true);
+    setMarketPriceError("");
+    try {
+      const response = await fetch("/api/material-prices/quote", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          rows: comparison.filteredRows.map((row) => ({
+            id: row.id,
+            materialName: row.materialName,
+            normalizedName: row.normalizedName,
+            category: row.category,
+            spec: row.spec,
+            unit: row.unit,
+            unitPrice: row.unitPrice,
+            supplierName: row.supplierName,
+            currency: row.currency
+          }))
+        })
+      });
+      const result = (await response.json()) as MaterialPriceQuoteResponse | { message?: string };
+      if (!response.ok) {
+        setMarketPriceError("message" in result ? result.message ?? "材料价格接口调用失败。" : "材料价格接口调用失败。");
+        return;
+      }
+      setMarketPriceResult(result as MaterialPriceQuoteResponse);
+    } catch {
+      setMarketPriceError("无法连接材料价格接口，请检查本地服务或外部价格源配置。");
+    } finally {
+      setIsRefreshingMarketPrices(false);
+    }
   }
 
   function exportRawCsv() {
@@ -266,6 +314,13 @@ export default function Home() {
                 onSupplierChecked={setSupplierChecked}
                 onUpdateFilter={updateFilter}
               />
+              <MaterialPriceWarningPanel
+                result={marketPriceResult}
+                isLoading={isRefreshingMarketPrices}
+                error={marketPriceError}
+                rowCount={comparison.filteredRows.length}
+                onRefresh={refreshMarketPrices}
+              />
               <section className="app-surface reveal-in rounded-[28px] p-4">
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -281,7 +336,7 @@ export default function Home() {
                     </button>
                   )}
                 </div>
-                <BomTable rows={visibleRows} />
+                <BomTable rows={visibleRows} priceComparisonsByRowId={marketPriceByRowId} />
               </section>
             </>
           )}
