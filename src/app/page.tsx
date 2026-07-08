@@ -1,0 +1,386 @@
+"use client";
+
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { BomTable } from "@/components/BomTable";
+import { CostDashboard } from "@/components/CostDashboard";
+import { buildCostComparison, CostFilters, STANDARD_CATEGORIES } from "@/lib/bom/cost-comparison";
+import { BomFileKind, BomFileRecord, CanonicalBomRow, UploadBomResponse } from "@/types/bom";
+
+type DetailSelection = {
+  title: string;
+  rows: CanonicalBomRow[];
+};
+
+export default function Home() {
+  const [records, setRecords] = useState<BomFileRecord[]>([]);
+  const [supplierName, setSupplierName] = useState("");
+  const [kind, setKind] = useState<BomFileKind>("supplier_quote");
+  const [files, setFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [uploadErrors, setUploadErrors] = useState<UploadBomResponse["errors"]>([]);
+  const [filters, setFilters] = useState<CostFilters>({
+    supplierNames: [],
+    category: "",
+    materialQuery: ""
+  });
+  const [detailSelection, setDetailSelection] = useState<DetailSelection | null>(null);
+
+  const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
+  const comparison = useMemo(() => buildCostComparison(rows, filters), [rows, filters]);
+  const issueCount = useMemo(
+    () => comparison.filteredRows.reduce((sum, row) => sum + row.dataIssues.length, 0),
+    [comparison.filteredRows]
+  );
+  const visibleRows = detailSelection?.rows ?? comparison.filteredRows;
+
+  const refresh = useCallback(async () => {
+    const recordsResponse = await fetch("/api/bom/records");
+    setRecords(await recordsResponse.json());
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function handleUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (files.length === 0) {
+      setMessage("请选择至少一个 Excel 或 CSV 文件。");
+      return;
+    }
+
+    setIsUploading(true);
+    setMessage("");
+    setUploadErrors([]);
+    setDetailSelection(null);
+
+    const formData = new FormData();
+    formData.set("supplierName", supplierName);
+    formData.set("kind", kind);
+    files.forEach((file) => formData.append("files", file));
+
+    const response = await fetch("/api/bom/upload", {
+      method: "POST",
+      body: formData
+    });
+    const result = (await response.json()) as UploadBomResponse | { message?: string };
+
+    if (!response.ok && "message" in result) {
+      setMessage(result.message ?? "上传失败，请检查文件格式。");
+      setIsUploading(false);
+      return;
+    }
+
+    if ("records" in result) {
+      setUploadErrors(result.errors);
+      setMessage(
+        result.records.length > 0
+          ? `成功解析 ${result.records.length} 个文件，合计 ${result.records.reduce((sum, record) => sum + record.rowCount, 0)} 行。`
+          : "没有文件解析成功，请检查表头和文件格式。"
+      );
+    }
+
+    setFiles([]);
+    await refresh();
+    setIsUploading(false);
+  }
+
+  async function handleClear() {
+    await fetch("/api/bom/records", { method: "DELETE" });
+    setMessage("已清空本地解析结果。");
+    setUploadErrors([]);
+    setDetailSelection(null);
+    await refresh();
+  }
+
+  function updateFilter(key: "category" | "materialQuery", value: string) {
+    setFilters((current) => ({ ...current, [key]: value }));
+    setDetailSelection(null);
+  }
+
+  function setSupplierChecked(supplierName: string, checked: boolean) {
+    setFilters((current) => {
+      const base = current.supplierNames.length === 0 ? comparison.suppliers : current.supplierNames;
+      const next = checked
+        ? Array.from(new Set([...base, supplierName]))
+        : base.filter((supplier) => supplier !== supplierName);
+
+      return {
+        ...current,
+        supplierNames: next.length === comparison.suppliers.length ? [] : next
+      };
+    });
+    setDetailSelection(null);
+  }
+
+  function selectAllSuppliers() {
+    setFilters((current) => ({ ...current, supplierNames: [] }));
+    setDetailSelection(null);
+  }
+
+  function resetFilters() {
+    setFilters({ supplierNames: [], category: "", materialQuery: "" });
+    setDetailSelection(null);
+  }
+
+  function exportCsv() {
+    const csv = toCsv(comparison.filteredRows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `bom-cost-comparison-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <main className="min-h-screen bg-paper">
+      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-3 px-4 py-4">
+        <header className="border-b border-line pb-3">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase text-brand">AI Cost Audit / MVP</p>
+              <h1 className="mt-1 text-2xl font-bold text-ink">AI 成本核验平台</h1>
+            </div>
+            <p className="max-w-3xl text-sm leading-6 text-slate-600">
+              面向多供应商 BOM 的成本对比工作台：上传、筛选、品类可视化、物料级对比和来源明细集中在同一页面。
+            </p>
+          </div>
+        </header>
+
+        <form onSubmit={handleUpload} className="border border-line bg-white p-3">
+          <div className="grid gap-3 xl:grid-cols-[180px_170px_1.5fr_auto_auto_auto]">
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600">供应商</span>
+              <input
+                value={supplierName}
+                onChange={(event) => setSupplierName(event.target.value)}
+                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+                placeholder="留空从文件名识别"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600">文件类型</span>
+              <select
+                value={kind}
+                onChange={(event) => setKind(event.target.value as BomFileKind)}
+                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+              >
+                <option value="supplier_quote">供应商报价</option>
+                <option value="historical_bom">历史 BOM</option>
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600">Excel / CSV 文件</span>
+              <input
+                type="file"
+                multiple
+                accept=".xlsx,.xls,.csv"
+                onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+                className="mt-1 h-9 w-full border border-dashed border-line bg-slate-50 px-3 py-1 text-sm"
+              />
+            </label>
+
+            <button
+              disabled={isUploading}
+              className="mt-5 h-9 bg-brand px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isUploading ? "解析中..." : "上传解析"}
+            </button>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="mt-5 h-9 bg-accent px-4 text-sm font-semibold text-white hover:bg-teal-800"
+            >
+              导出 CSV
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="mt-5 h-9 border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              清空
+            </button>
+          </div>
+
+          {(files.length > 0 || message || uploadErrors.length > 0) && (
+            <div className="mt-3 grid gap-2 text-xs text-slate-600 lg:grid-cols-[1fr_1fr]">
+              <div className="min-h-8 bg-slate-50 p-2">
+                {files.length > 0 ? files.map((file) => <span key={`${file.name}-${file.size}`} className="mr-3">{file.name}</span>) : message}
+              </div>
+              {uploadErrors.length > 0 && (
+                <div className="bg-red-50 p-2 text-danger">
+                  {uploadErrors.map((error) => (
+                    <span key={error.fileName} className="mr-3">
+                      {error.fileName}: {error.message}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </form>
+
+        <section className="grid gap-3 lg:grid-cols-[repeat(3,minmax(0,1fr))]">
+          <Metric label="参与供应商" value={comparison.activeSuppliers.length.toString()} />
+          <Metric label="当前明细行" value={comparison.filteredRows.length.toString()} />
+          <Metric label="数据异常" value={issueCount.toString()} tone={issueCount > 0 ? "danger" : "normal"} />
+        </section>
+
+        <section className="border border-line bg-white p-3">
+          <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_2fr_auto]">
+            <div className="block">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-semibold text-slate-600">供应商筛选</span>
+                <button
+                  type="button"
+                  onClick={selectAllSuppliers}
+                  className="text-xs font-semibold text-brand hover:text-blue-700"
+                >
+                  全部
+                </button>
+              </div>
+              <div className="mt-1 flex min-h-9 flex-wrap items-center gap-2 border border-line px-2 py-1">
+                {comparison.suppliers.map((supplier) => {
+                  const checked = filters.supplierNames.length === 0 || filters.supplierNames.includes(supplier);
+                  return (
+                    <label key={supplier} className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => setSupplierChecked(supplier, event.target.checked)}
+                        className="h-4 w-4 accent-brand"
+                      />
+                      <span>{supplier}</span>
+                    </label>
+                  );
+                })}
+                {comparison.suppliers.length === 0 && (
+                  <span className="text-sm text-slate-400">上传供应商 BOM 后可筛选</span>
+                )}
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600">品类筛选</span>
+              <select
+                value={filters.category}
+                onChange={(event) => updateFilter("category", event.target.value)}
+                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+              >
+                <option value="">全部品类</option>
+                {STANDARD_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600">搜索物料</span>
+              <input
+                value={filters.materialQuery}
+                onChange={(event) => updateFilter("materialQuery", event.target.value)}
+                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+                placeholder="物料名称、标准名或规格"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="mt-5 h-9 border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              重置筛选
+            </button>
+          </div>
+        </section>
+
+        <CostDashboard
+          comparison={comparison}
+          selectedCategory={filters.category}
+          onInspectRows={(selectedRows, title) => setDetailSelection({ rows: selectedRows, title })}
+        />
+
+        <section className="border border-line bg-white p-3">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前对比明细"}</h2>
+              <p className="text-xs text-slate-500">
+                {detailSelection ? "来自上方图表或物料对比表的来源行。" : "明细表受当前筛选影响，导出 CSV 使用同一批数据。"}
+              </p>
+            </div>
+            {detailSelection && (
+              <button
+                onClick={() => setDetailSelection(null)}
+                className="h-8 border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                返回筛选明细
+              </button>
+            )}
+          </div>
+          <BomTable rows={visibleRows} />
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function Metric({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "danger" }) {
+  return (
+    <div className="border border-line bg-white p-3">
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
+      <p className={`mt-1 text-2xl font-bold ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
+    </div>
+  );
+}
+
+function toCsv(rows: CanonicalBomRow[]): string {
+  const headers = [
+    "供应商",
+    "文件",
+    "原行号",
+    "物料名称",
+    "规格型号",
+    "原品类",
+    "单位",
+    "数量",
+    "单价",
+    "金额",
+    "备注",
+    "异常",
+    "原始字段"
+  ];
+  const body = rows.map((row) =>
+    [
+      row.supplierName,
+      row.sourceFileName,
+      row.rowNumber,
+      row.materialName,
+      row.spec,
+      row.category,
+      row.unit,
+      row.quantity,
+      row.unitPrice,
+      row.amount,
+      row.remark,
+      row.dataIssues.map((issue) => issue.message).join("; "),
+      JSON.stringify(row.originalFields)
+    ].map(escapeCsv)
+  );
+
+  return `\uFEFF${[headers.map(escapeCsv), ...body].map((line) => line.join(",")).join("\n")}`;
+}
+
+function escapeCsv(value: unknown): string {
+  const text = String(value ?? "");
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}

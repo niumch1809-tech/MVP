@@ -1,0 +1,15 @@
+.next
+node_modules
+.npm-cache
+dist
+coverage
+.env*.local
+*.tsbuildinfo
+data/*.json
+uploads/*
+work/
+outputs/
+.codex/
+.agents/
+!uploads/.gitkeep
+!data/.gitkeep
