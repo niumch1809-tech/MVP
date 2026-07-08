@@ -10,8 +10,9 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import { useMemo, useState } from "react";
 import { CanonicalBomRow } from "@/types/bom";
-import { CostComparison, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { CostComparison, MaterialComparisonItem, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 
 type Props = {
   comparison: CostComparison;
@@ -21,6 +22,8 @@ type Props = {
 
 const SUPPLIER_COLORS = ["#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2"];
 const PANEL_CLASS = "app-surface motion-lift p-4";
+type MaterialSortKey = "materialName" | "category" | "minPrice" | "maxPrice" | "diffAmount" | "diffRate" | "coverage";
+type MaterialSortDirection = "asc" | "desc";
 
 export function CostDashboard({ comparison, selectedCategory, onInspectRows }: Props) {
   return (
@@ -211,28 +214,45 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
 
 function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
   const suppliers = comparison.activeSuppliers;
+  const [sortKey, setSortKey] = useState<MaterialSortKey>("diffAmount");
+  const [sortDirection, setSortDirection] = useState<MaterialSortDirection>("desc");
+  const rows = useMemo(() => {
+    return [...comparison.materialComparisons].sort((a, b) => {
+      const direction = sortDirection === "asc" ? 1 : -1;
+      return compareMaterial(a, b, sortKey) * direction;
+    });
+  }, [comparison.materialComparisons, sortDirection, sortKey]);
+
+  function toggleSort(nextKey: MaterialSortKey) {
+    if (sortKey === nextKey) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection(nextKey === "materialName" || nextKey === "category" ? "asc" : "desc");
+  }
 
   return (
-    <div className="max-h-[560px] overflow-auto border border-slate-200">
+    <div className="max-h-[560px] overflow-auto rounded-[18px] border border-slate-200 bg-white">
       <table className="min-w-full text-left text-sm">
-        <thead className="sticky top-0 bg-slate-100 text-xs text-slate-600 shadow-sm">
+        <thead className="sticky top-0 bg-white/95 text-xs text-slate-600 shadow-sm">
           <tr>
-            <th className="whitespace-nowrap px-3 py-2 font-semibold">物料</th>
-            <th className="whitespace-nowrap px-3 py-2 font-semibold">品类</th>
+            <SortableHeader label="物料" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
+            <SortableHeader label="品类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
             {suppliers.map((supplier) => (
               <th key={supplier} className="whitespace-nowrap px-3 py-2 text-right font-semibold">
                 {supplier}
               </th>
             ))}
-            <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">最低</th>
-            <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">最高</th>
-            <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">差异</th>
+            <SortableHeader label="最低" active={sortKey === "minPrice"} direction={sortDirection} align="right" onClick={() => toggleSort("minPrice")} />
+            <SortableHeader label="最高" active={sortKey === "maxPrice"} direction={sortDirection} align="right" onClick={() => toggleSort("maxPrice")} />
+            <SortableHeader label="差异" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
             <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">风险</th>
-            <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">覆盖</th>
+            <SortableHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
           </tr>
         </thead>
         <tbody>
-          {comparison.materialComparisons.map((item) => {
+          {rows.map((item) => {
             const risk = getDiffRisk(item.diffRate, item.suppliers.length, suppliers.length);
             return (
               <tr
@@ -267,7 +287,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
               </tr>
             );
           })}
-          {comparison.materialComparisons.length === 0 && (
+          {rows.length === 0 && (
             <tr>
               <td colSpan={suppliers.length + 7} className="px-3 py-6 text-center text-sm text-slate-500">
                 当前筛选范围内没有可对比物料。
@@ -278,6 +298,45 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
       </table>
     </div>
   );
+}
+
+function SortableHeader({
+  label,
+  active,
+  direction,
+  align = "left",
+  onClick
+}: {
+  label: string;
+  active: boolean;
+  direction: MaterialSortDirection;
+  align?: "left" | "right";
+  onClick: () => void;
+}) {
+  return (
+    <th className={`whitespace-nowrap px-3 py-2 font-semibold ${align === "right" ? "text-right" : "text-left"}`}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-1 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-100 ${
+          active ? "text-ink" : ""
+        }`}
+      >
+        {label}
+        <span className="text-[10px] text-slate-400">{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span>
+      </button>
+    </th>
+  );
+}
+
+function compareMaterial(a: MaterialComparisonItem, b: MaterialComparisonItem, key: MaterialSortKey): number {
+  if (key === "materialName") return a.materialName.localeCompare(b.materialName, "zh-CN");
+  if (key === "category") return a.category.localeCompare(b.category, "zh-CN");
+  if (key === "minPrice") return a.minPrice - b.minPrice;
+  if (key === "maxPrice") return a.maxPrice - b.maxPrice;
+  if (key === "diffRate") return a.diffRate - b.diffRate;
+  if (key === "coverage") return a.suppliers.length - b.suppliers.length;
+  return a.diffAmount - b.diffAmount;
 }
 
 function formatMoney(value: number): string {

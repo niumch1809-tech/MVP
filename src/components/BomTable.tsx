@@ -57,13 +57,13 @@ export function BomTable({ rows }: Props) {
         cell: ({ row }) =>
           row.original.dataIssues.length > 0 ? (
             <button
-              className="bg-red-50 px-2 py-1 text-xs font-semibold text-danger ring-1 ring-red-100"
+              className="rounded-full bg-red-50 px-2 py-1 text-xs font-semibold text-danger ring-1 ring-red-100"
               onClick={() => setExpandedRowId(expandedRowId === row.original.id ? null : row.original.id)}
             >
               异常 {row.original.dataIssues.length}
             </button>
           ) : (
-            <span className="bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">正常</span>
+            <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">正常</span>
           )
       },
       {
@@ -71,7 +71,7 @@ export function BomTable({ rows }: Props) {
         header: "追溯",
         cell: ({ row }) => (
           <button
-            className="motion-lift border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 active:scale-[0.98]"
+            className="motion-lift rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 active:scale-[0.98]"
             onClick={() => setExpandedRowId(expandedRowId === row.original.id ? null : row.original.id)}
           >
             原始字段
@@ -100,15 +100,18 @@ export function BomTable({ rows }: Props) {
   }
 
   return (
-    <div className="overflow-hidden border border-slate-200 bg-white">
+    <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70">
       <div className="max-h-[540px] overflow-auto">
         <table className="min-w-full border-collapse text-left text-sm">
-          <thead className="sticky top-0 bg-slate-100 text-xs text-slate-600 shadow-sm">
+          <thead className="sticky top-0 bg-white/95 text-xs text-slate-600 shadow-sm">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th key={header.id} className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">
-                    <button className="text-left" onClick={header.column.getToggleSortingHandler()}>
+                    <button
+                      className="rounded-full px-2 py-1 text-left transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-100"
+                      onClick={header.column.getToggleSortingHandler()}
+                    >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       <span className="ml-1">
                         {header.column.getIsSorted() === "asc" ? "↑" : header.column.getIsSorted() === "desc" ? "↓" : ""}
@@ -122,7 +125,7 @@ export function BomTable({ rows }: Props) {
           <tbody>
             {table.getRowModel().rows.map((row) => (
               <Fragment key={row.id}>
-                <tr className="border-b border-slate-100 odd:bg-white even:bg-slate-50/50 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-blue-50/70">
+                <tr className="border-b border-slate-100 bg-white transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-50">
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
