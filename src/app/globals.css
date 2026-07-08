@@ -11,10 +11,15 @@ body {
   margin: 0;
   color: #17202a;
   background: #f7f8fb;
+  font-feature-settings: "tnum";
 }
 
 button,
 input,
 select {
   font: inherit;
+}
+
+* {
+  box-sizing: border-box;
 }

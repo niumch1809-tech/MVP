@@ -136,13 +136,13 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-paper">
-      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-3 px-4 py-4">
-        <header className="border-b border-line pb-3">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[#f4f6f9]">
+      <div className="mx-auto flex w-full max-w-[1520px] flex-col gap-4 px-4 py-4">
+        <header className="border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase text-brand">AI Cost Audit / MVP</p>
-              <h1 className="mt-1 text-2xl font-bold text-ink">AI 成本核验平台</h1>
+              <h1 className="mt-1 text-2xl font-bold tracking-normal text-ink">AI 成本核验平台</h1>
             </div>
             <p className="max-w-3xl text-sm leading-6 text-slate-600">
               面向多供应商 BOM 的成本对比工作台：上传、筛选、品类可视化、物料级对比和来源明细集中在同一页面。
@@ -150,14 +150,14 @@ export default function Home() {
           </div>
         </header>
 
-        <form onSubmit={handleUpload} className="border border-line bg-white p-3">
+        <form onSubmit={handleUpload} className="border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid gap-3 xl:grid-cols-[180px_170px_1.5fr_auto_auto_auto]">
             <label className="block">
               <span className="text-xs font-semibold text-slate-600">供应商</span>
               <input
                 value={supplierName}
                 onChange={(event) => setSupplierName(event.target.value)}
-                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
                 placeholder="留空从文件名识别"
               />
             </label>
@@ -167,7 +167,7 @@ export default function Home() {
               <select
                 value={kind}
                 onChange={(event) => setKind(event.target.value as BomFileKind)}
-                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
               >
                 <option value="supplier_quote">供应商报价</option>
                 <option value="historical_bom">历史 BOM</option>
@@ -181,27 +181,27 @@ export default function Home() {
                 multiple
                 accept=".xlsx,.xls,.csv"
                 onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-                className="mt-1 h-9 w-full border border-dashed border-line bg-slate-50 px-3 py-1 text-sm"
+                className="mt-1 h-9 w-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1 text-sm file:mr-3 file:border-0 file:bg-slate-200 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-700"
               />
             </label>
 
             <button
               disabled={isUploading}
-              className="mt-5 h-9 bg-brand px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-5 h-9 bg-brand px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isUploading ? "解析中..." : "上传解析"}
             </button>
             <button
               type="button"
               onClick={exportCsv}
-              className="mt-5 h-9 bg-accent px-4 text-sm font-semibold text-white hover:bg-teal-800"
+              className="mt-5 h-9 bg-accent px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800"
             >
               导出 CSV
             </button>
             <button
               type="button"
               onClick={handleClear}
-              className="mt-5 h-9 border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="mt-5 h-9 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               清空
             </button>
@@ -209,11 +209,11 @@ export default function Home() {
 
           {(files.length > 0 || message || uploadErrors.length > 0) && (
             <div className="mt-3 grid gap-2 text-xs text-slate-600 lg:grid-cols-[1fr_1fr]">
-              <div className="min-h-8 bg-slate-50 p-2">
+              <div className="min-h-8 border border-slate-200 bg-slate-50 p-2">
                 {files.length > 0 ? files.map((file) => <span key={`${file.name}-${file.size}`} className="mr-3">{file.name}</span>) : message}
               </div>
               {uploadErrors.length > 0 && (
-                <div className="bg-red-50 p-2 text-danger">
+                <div className="border border-red-100 bg-red-50 p-2 text-danger">
                   {uploadErrors.map((error) => (
                     <span key={error.fileName} className="mr-3">
                       {error.fileName}: {error.message}
@@ -231,7 +231,7 @@ export default function Home() {
           <Metric label="数据异常" value={issueCount.toString()} tone={issueCount > 0 ? "danger" : "normal"} />
         </section>
 
-        <section className="border border-line bg-white p-3">
+        <section className="border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_2fr_auto]">
             <div className="block">
               <div className="flex items-center justify-between gap-3">
@@ -244,7 +244,7 @@ export default function Home() {
                   全部
                 </button>
               </div>
-              <div className="mt-1 flex min-h-9 flex-wrap items-center gap-2 border border-line px-2 py-1">
+              <div className="mt-1 flex min-h-9 flex-wrap items-center gap-2 border border-slate-300 bg-slate-50 px-2 py-1">
                 {comparison.suppliers.map((supplier) => {
                   const checked = filters.supplierNames.length === 0 || filters.supplierNames.includes(supplier);
                   return (
@@ -270,7 +270,7 @@ export default function Home() {
               <select
                 value={filters.category}
                 onChange={(event) => updateFilter("category", event.target.value)}
-                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">全部品类</option>
                 {STANDARD_CATEGORIES.map((category) => (
@@ -286,7 +286,7 @@ export default function Home() {
               <input
                 value={filters.materialQuery}
                 onChange={(event) => updateFilter("materialQuery", event.target.value)}
-                className="mt-1 h-9 w-full border border-line px-3 text-sm outline-none focus:border-brand"
+                className="mt-1 h-9 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
                 placeholder="物料名称、标准名或规格"
               />
             </label>
@@ -294,7 +294,7 @@ export default function Home() {
             <button
               type="button"
               onClick={resetFilters}
-              className="mt-5 h-9 border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="mt-5 h-9 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               重置筛选
             </button>
@@ -307,7 +307,7 @@ export default function Home() {
           onInspectRows={(selectedRows, title) => setDetailSelection({ rows: selectedRows, title })}
         />
 
-        <section className="border border-line bg-white p-3">
+        <section className="border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前对比明细"}</h2>
@@ -318,7 +318,7 @@ export default function Home() {
             {detailSelection && (
               <button
                 onClick={() => setDetailSelection(null)}
-                className="h-8 border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="h-8 border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 返回筛选明细
               </button>
@@ -333,9 +333,9 @@ export default function Home() {
 
 function Metric({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "danger" }) {
   return (
-    <div className="border border-line bg-white p-3">
+    <div className="border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
+      <p className={`mt-2 text-3xl font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
     </div>
   );
 }

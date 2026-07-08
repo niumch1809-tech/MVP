@@ -20,16 +20,20 @@ type Props = {
 };
 
 const SUPPLIER_COLORS = ["#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2"];
+const PANEL_CLASS = "border border-slate-200 bg-white p-4 shadow-sm";
 
 export function CostDashboard({ comparison, selectedCategory, onInspectRows }: Props) {
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-4">
       <div className="grid gap-3 xl:grid-cols-[0.8fr_1.4fr]">
-        <section className="border border-line bg-white p-4">
+        <section className={PANEL_CLASS}>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink">
-              {selectedCategory ? `${selectedCategory}供应商报价` : "供应商报价"}
-            </h2>
+            <div>
+              <h2 className="text-sm font-semibold text-ink">
+                {selectedCategory ? `${selectedCategory}供应商报价` : "供应商报价"}
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">按当前筛选汇总供应商 BOM 金额</p>
+            </div>
             <span className="text-xs text-slate-500">点击柱子查看来源</span>
           </div>
           <div className="h-64">
@@ -64,7 +68,7 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
         )}
       </div>
 
-      <section className="border border-line bg-white p-4">
+      <section className={PANEL_CLASS}>
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-ink">
@@ -84,9 +88,12 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
 
 function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCategory">) {
   return (
-    <section className="border border-line bg-white p-4">
+    <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-ink">品类成本对比</h2>
+        <div>
+          <h2 className="text-sm font-semibold text-ink">品类成本对比</h2>
+          <p className="mt-1 text-xs text-slate-500">用于快速定位成本结构差异</p>
+        </div>
         <span className="text-xs text-slate-500">横坐标为品类，柱子为供应商</span>
       </div>
       <div className="h-64">
@@ -135,9 +142,12 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
   });
 
   return (
-    <section className="border border-line bg-white p-4">
+    <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-ink">{selectedCategory}物料单价对比</h2>
+        <div>
+          <h2 className="text-sm font-semibold text-ink">{selectedCategory}物料单价对比</h2>
+          <p className="mt-1 text-xs text-slate-500">筛选品类后按物料逐项比较供应商单价</p>
+        </div>
         <span className="text-xs text-slate-500">横坐标为物料，柱子为供应商</span>
       </div>
       <div className="h-64">
@@ -176,9 +186,9 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
   const suppliers = comparison.activeSuppliers;
 
   return (
-    <div className="max-h-[520px] overflow-auto">
+    <div className="max-h-[520px] overflow-auto border border-slate-200">
       <table className="min-w-full text-left text-sm">
-        <thead className="sticky top-0 bg-slate-100 text-xs text-slate-600">
+        <thead className="sticky top-0 bg-slate-100 text-xs text-slate-600 shadow-sm">
           <tr>
             <th className="whitespace-nowrap px-3 py-2 font-semibold">物料</th>
             <th className="whitespace-nowrap px-3 py-2 font-semibold">品类</th>
@@ -197,7 +207,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
           {comparison.materialComparisons.map((item) => (
             <tr
               key={item.id}
-              className="cursor-pointer border-b border-slate-100 hover:bg-blue-50/60"
+              className="cursor-pointer border-b border-slate-100 odd:bg-white even:bg-slate-50/50 hover:bg-blue-50/70"
               onClick={() => onInspectRows(item.rows, `物料来源明细：${item.materialName}`)}
             >
               <td className="whitespace-nowrap px-3 py-2 font-medium text-ink">{item.materialName}</td>

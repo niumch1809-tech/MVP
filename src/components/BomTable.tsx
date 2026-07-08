@@ -46,7 +46,7 @@ export function BomTable({ rows }: Props) {
         cell: ({ row }) => (
           <span>
             {formatMoney(row.original.amount)}
-            {row.original.isAmountCalculated && <span className="ml-1 text-xs text-accent">自动</span>}
+            {row.original.isAmountCalculated && <span className="ml-1 bg-teal-50 px-1.5 py-0.5 text-xs text-accent">自动</span>}
           </span>
         )
       },
@@ -57,13 +57,13 @@ export function BomTable({ rows }: Props) {
         cell: ({ row }) =>
           row.original.dataIssues.length > 0 ? (
             <button
-              className="rounded bg-red-100 px-2 py-1 text-xs font-semibold text-danger"
+              className="bg-red-50 px-2 py-1 text-xs font-semibold text-danger ring-1 ring-red-100"
               onClick={() => setExpandedRowId(expandedRowId === row.original.id ? null : row.original.id)}
             >
               异常 {row.original.dataIssues.length}
             </button>
           ) : (
-            <span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">正常</span>
+            <span className="bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">正常</span>
           )
       },
       {
@@ -71,7 +71,7 @@ export function BomTable({ rows }: Props) {
         header: "追溯",
         cell: ({ row }) => (
           <button
-            className="rounded border border-line px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             onClick={() => setExpandedRowId(expandedRowId === row.original.id ? null : row.original.id)}
           >
             原始字段
@@ -93,21 +93,21 @@ export function BomTable({ rows }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="border border-dashed border-line bg-white p-8 text-center text-sm text-slate-500">
+      <div className="border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
         当前没有可展示的 BOM 明细。请上传 BOM，或调整筛选条件。
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden border border-line bg-white">
+    <div className="overflow-hidden border border-slate-200 bg-white">
       <div className="max-h-[540px] overflow-auto">
         <table className="min-w-full border-collapse text-left text-sm">
-          <thead className="sticky top-0 bg-slate-100 text-xs text-slate-600">
+          <thead className="sticky top-0 bg-slate-100 text-xs text-slate-600 shadow-sm">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <th key={header.id} className="whitespace-nowrap border-b border-line px-3 py-3 font-semibold">
+                  <th key={header.id} className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">
                     <button className="text-left" onClick={header.column.getToggleSortingHandler()}>
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       <span className="ml-1">
@@ -122,7 +122,7 @@ export function BomTable({ rows }: Props) {
           <tbody>
             {table.getRowModel().rows.map((row) => (
               <Fragment key={row.id}>
-                <tr className="border-b border-slate-100 hover:bg-blue-50/50">
+                <tr className="border-b border-slate-100 odd:bg-white even:bg-slate-50/50 hover:bg-blue-50/70">
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className="whitespace-nowrap px-3 py-3 text-slate-700">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
