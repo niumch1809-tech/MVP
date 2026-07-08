@@ -7,10 +7,30 @@ type Props = {
   isLoading: boolean;
   error: string;
   rowCount: number;
+  providerUrl: string;
+  uploadedPriceCount: number;
+  priceFileName: string;
+  sourceMessage: string;
+  onProviderUrlChange: (value: string) => void;
+  onPriceFileChange: (file: File | null) => void;
+  onClearUploadedPrices: () => void;
   onRefresh: () => void;
 };
 
-export function MaterialPriceWarningPanel({ result, isLoading, error, rowCount, onRefresh }: Props) {
+export function MaterialPriceWarningPanel({
+  result,
+  isLoading,
+  error,
+  rowCount,
+  providerUrl,
+  uploadedPriceCount,
+  priceFileName,
+  sourceMessage,
+  onProviderUrlChange,
+  onPriceFileChange,
+  onClearUploadedPrices,
+  onRefresh
+}: Props) {
   const comparisons = result?.comparisons ?? [];
   const highCount = comparisons.filter((item) => item.riskLevel === "high").length;
   const mediumCount = comparisons.filter((item) => item.riskLevel === "medium").length;
@@ -42,6 +62,43 @@ export function MaterialPriceWarningPanel({ result, isLoading, error, rowCount, 
           {isLoading ? "刷新中..." : "刷新材料价格"}
         </button>
       </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+        <label className="block">
+          <span className="text-xs font-semibold text-white/54">价格接口 URL</span>
+          <input
+            value={providerUrl}
+            onChange={(event) => onProviderUrlChange(event.target.value)}
+            className="mt-2 h-10 w-full rounded-[14px] border border-white/10 bg-white/8 px-3 text-sm text-white outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] placeholder:text-white/28 focus:border-white/30"
+            placeholder="https://example.com/material-price-api"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-semibold text-white/54">上传材料价格表</span>
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={(event) => onPriceFileChange(event.target.files?.[0] ?? null)}
+            className="mt-2 h-10 w-full rounded-[14px] bg-white/8 px-3 py-1.5 text-sm text-white file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-950"
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={onClearUploadedPrices}
+          disabled={uploadedPriceCount === 0}
+          className="motion-lift mt-5 h-10 rounded-full border border-white/16 px-4 text-sm font-semibold text-white/76 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          清空价格表
+        </button>
+      </div>
+
+      {(sourceMessage || uploadedPriceCount > 0 || priceFileName) && (
+        <div className="mt-3 rounded-[18px] bg-white/7 p-3 text-xs text-white/62 ring-1 ring-white/10">
+          {sourceMessage || `已载入 ${priceFileName}，共 ${uploadedPriceCount} 条参考价。上传价格表优先于 URL 接口。`}
+        </div>
+      )}
 
       <div className="mt-4 grid gap-2 md:grid-cols-4">
         <Signal label="已核价" value={comparisons.length.toString()} />

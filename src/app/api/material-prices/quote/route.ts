@@ -11,7 +11,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "缺少需要核价的 BOM 明细。" }, { status: 400 });
     }
 
-    const result = await getMaterialPriceComparisons(rows);
+    const result = await getMaterialPriceComparisons(rows, {
+      providerUrl: payload.providerUrl,
+      prices: payload.prices
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "材料价格接口调用失败。";

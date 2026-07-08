@@ -109,7 +109,7 @@ export type MaterialMarketPrice = {
   currency: string;
   referenceUnitPrice: number;
   sourceName: string;
-  sourceKind: "mock" | "external";
+  sourceKind: "mock" | "external" | "uploaded";
   updatedAt: string;
   confidence: number;
   note: string;
@@ -127,13 +127,15 @@ export type MaterialPriceComparison = {
   riskLevel: MaterialPriceRiskLevel;
   status: MaterialPriceStatus;
   sourceName?: string;
-  sourceKind?: "mock" | "external";
+  sourceKind?: "mock" | "external" | "uploaded";
   updatedAt?: string;
   rule: string;
   suggestion: string;
 };
 
 export type MaterialPriceQuoteRequest = {
+  providerUrl?: string;
+  prices?: MaterialMarketPrice[];
   rows: Array<Pick<
     CanonicalBomRow,
     "id" | "materialName" | "normalizedName" | "category" | "spec" | "unit" | "unitPrice" | "supplierName" | "currency"
@@ -143,6 +145,6 @@ export type MaterialPriceQuoteRequest = {
 export type MaterialPriceQuoteResponse = {
   generatedAt: string;
   sourceName: string;
-  sourceKind: "mock" | "external";
+  sourceKind: "mock" | "external" | "uploaded";
   comparisons: MaterialPriceComparison[];
 };

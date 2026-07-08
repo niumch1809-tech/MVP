@@ -6,10 +6,12 @@ import { CostDashboard } from "@/components/CostDashboard";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
 import { buildCostComparison, CostFilters, STANDARD_CATEGORIES } from "@/lib/bom/cost-comparison";
+import { parseMaterialPriceFile } from "@/lib/bom/price-table-client";
 import {
   BomFileKind,
   BomFileRecord,
   CanonicalBomRow,
+  MaterialMarketPrice,
   MaterialPriceQuoteResponse,
   UploadBomResponse
 } from "@/types/bom";
@@ -40,6 +42,10 @@ export default function Home() {
   const [isRefreshingMarketPrices, setIsRefreshingMarketPrices] = useState(false);
   const [marketPriceError, setMarketPriceError] = useState("");
   const [marketPriceResult, setMarketPriceResult] = useState<MaterialPriceQuoteResponse | null>(null);
+  const [materialPriceProviderUrl, setMaterialPriceProviderUrl] = useState("");
+  const [uploadedMarketPrices, setUploadedMarketPrices] = useState<MaterialMarketPrice[]>([]);
+  const [priceFileName, setPriceFileName] = useState("");
+  const [priceSourceMessage, setPriceSourceMessage] = useState("");
   const [filters, setFilters] = useState<CostFilters>({
     supplierNames: [],
     category: "",
@@ -160,6 +166,8 @@ export default function Home() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          providerUrl: materialPriceProviderUrl,
+          prices: uploadedMarketPrices,
           rows: comparison.filteredRows.map((row) => ({
             id: row.id,
             materialName: row.materialName,
@@ -179,6 +187,7 @@ export default function Home() {
         return;
       }
       setMarketPriceResult(result as MaterialPriceQuoteResponse);
+      setPriceSourceMessage("");
     } catch {
       setMarketPriceError("无法连接材料价格接口，请检查本地服务或外部价格源配置。");
     } finally {
@@ -186,8 +195,31 @@ export default function Home() {
     }
   }
 
+  async function handlePriceFileChange(file: File | null) {
+    if (!file) return;
+    setMarketPriceError("");
+    setPriceSourceMessage("");
+    try {
+      const prices = await parseMaterialPriceFile(file);
+      setUploadedMarketPrices(prices);
+      setPriceFileName(file.name);
+      setPriceSourceMessage(`已载入 ${file.name}，共 ${prices.length} 条参考价。上传价格表会优先用于核价。`);
+    } catch (error) {
+      setUploadedMarketPrices([]);
+      setPriceFileName("");
+      setPriceSourceMessage("");
+      setMarketPriceError(error instanceof Error ? error.message : "价格表解析失败，请检查字段。");
+    }
+  }
+
+  function clearUploadedPrices() {
+    setUploadedMarketPrices([]);
+    setPriceFileName("");
+    setPriceSourceMessage("已清空上传价格表，将使用 URL 接口或内置 mock 价格源。");
+  }
+
   function exportRawCsv() {
-    downloadCsv(toRawCsv(comparison.filteredRows), `bom-source-rows-${today()}.csv`);
+    downloadCsv(toRawCsv(comparison.filteredRows, marketPriceByRowId), `bom-source-rows-${today()}.csv`);
   }
 
   function exportComparisonCsv() {
@@ -319,6 +351,13 @@ export default function Home() {
                 isLoading={isRefreshingMarketPrices}
                 error={marketPriceError}
                 rowCount={comparison.filteredRows.length}
+                providerUrl={materialPriceProviderUrl}
+                uploadedPriceCount={uploadedMarketPrices.length}
+                priceFileName={priceFileName}
+                sourceMessage={priceSourceMessage}
+                onProviderUrlChange={setMaterialPriceProviderUrl}
+                onPriceFileChange={handlePriceFileChange}
+                onClearUploadedPrices={clearUploadedPrices}
                 onRefresh={refreshMarketPrices}
               />
               <section className="app-surface reveal-in rounded-[28px] p-4">
@@ -610,7 +649,7 @@ function MetricCell({ label, value, tone = "normal" }: { label: string; value: s
   );
 }
 
-function toRawCsv(rows: CanonicalBomRow[]): string {
+function toRawCsv(rows: CanonicalBomRow[], marketPriceByRowId: Record<string, MaterialPriceQuoteResponse["comparisons"][number]>): string {
   const headers = [
     "供应商",
     "文件",
@@ -622,12 +661,17 @@ function toRawCsv(rows: CanonicalBomRow[]): string {
     "数量",
     "单价",
     "金额",
+    "材料参考价",
+    "行情差异率",
+    "行情风险",
     "备注",
     "异常",
     "原始字段"
   ];
   const body = rows.map((row) =>
-    [
+    {
+      const marketPrice = marketPriceByRowId[row.id];
+      return [
       row.supplierName,
       row.sourceFileName,
       row.rowNumber,
@@ -638,13 +682,29 @@ function toRawCsv(rows: CanonicalBomRow[]): string {
       row.quantity,
       row.unitPrice,
       row.amount,
+      marketPrice?.referenceUnitPrice ?? "",
+      marketPrice?.differenceRate === undefined ? "" : `${(marketPrice.differenceRate * 100).toFixed(1)}%`,
+      marketPrice ? getMarketRiskLabel(marketPrice.riskLevel, marketPrice.status) : "",
       row.remark,
       row.dataIssues.map((issue) => issue.message).join("; "),
       JSON.stringify(row.originalFields)
-    ].map(escapeCsv)
+      ].map(escapeCsv);
+    }
   );
 
   return `\uFEFF${[headers.map(escapeCsv), ...body].map((line) => line.join(",")).join("\n")}`;
+}
+
+function getMarketRiskLabel(
+  riskLevel: MaterialPriceQuoteResponse["comparisons"][number]["riskLevel"],
+  status: MaterialPriceQuoteResponse["comparisons"][number]["status"]
+): string {
+  if (status === "not_found") return "无参考";
+  if (status === "unit_mismatch") return "单位核验";
+  if (riskLevel === "high") return "高风险";
+  if (riskLevel === "medium") return "需核验";
+  if (riskLevel === "low") return "轻微偏离";
+  return "接近行情";
 }
 
 function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>): string {

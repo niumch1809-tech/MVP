@@ -14,6 +14,11 @@ type QuoteRow = Pick<
   "id" | "materialName" | "normalizedName" | "category" | "spec" | "unit" | "unitPrice" | "supplierName" | "currency"
 >;
 
+type PriceProviderInput = {
+  providerUrl?: string;
+  prices?: MaterialMarketPrice[];
+};
+
 type ExternalPriceResponse = {
   prices?: MaterialMarketPrice[];
 };
@@ -41,9 +46,18 @@ const KEYWORD_PRICE_RULES: Array<{ pattern: RegExp; price: number; unit?: string
   { pattern: /线材|端子|接线/i, price: 0.85, unit: "pcs", note: "按常规线材端子估算" }
 ];
 
-export async function getMaterialPriceComparisons(rows: QuoteRow[]): Promise<MaterialPriceQuoteResponse> {
-  const externalUrl = process.env.MATERIAL_PRICE_PROVIDER_URL;
+export async function getMaterialPriceComparisons(rows: QuoteRow[], provider: PriceProviderInput = {}): Promise<MaterialPriceQuoteResponse> {
+  const externalUrl = provider.providerUrl?.trim() || process.env.MATERIAL_PRICE_PROVIDER_URL;
   const generatedAt = new Date().toISOString();
+
+  if (provider.prices && provider.prices.length > 0) {
+    return {
+      generatedAt,
+      sourceName: "网页上传材料价格表",
+      sourceKind: "uploaded",
+      comparisons: compareRowsWithPrices(rows, provider.prices)
+    };
+  }
 
   if (externalUrl) {
     const externalPrices = await fetchExternalPrices(externalUrl, rows);
