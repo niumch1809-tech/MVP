@@ -51,6 +51,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
             <tr>
               <SortHeader label="产品" active={sortKey === "productName"} direction={sortDirection} onClick={() => toggleSort("productName")} />
               <SortHeader label="物料" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
+              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">匹配键</th>
               <SortHeader label="标准品类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
               {suppliers.map((supplier) => (
                 <th key={supplier} className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
@@ -73,6 +74,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
               >
                 <td className="whitespace-nowrap px-3 py-3 text-slate-600">{item.productName}</td>
                 <td className="whitespace-nowrap px-3 py-3 font-semibold text-ink">{item.materialName}</td>
+                <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">{item.matchKey}</td>
                 <td className="whitespace-nowrap px-3 py-3 text-slate-600">{item.category}</td>
                 {suppliers.map((supplier) => {
                   const point = item.suppliers.find((entry) => entry.supplierName === supplier);
@@ -100,7 +102,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={suppliers.length + 8} className="px-3 py-10 text-center text-sm text-slate-500">
+                <td colSpan={suppliers.length + 9} className="px-3 py-10 text-center text-sm text-slate-500">
                   当前没有可输出的整合对比数据。
                 </td>
               </tr>

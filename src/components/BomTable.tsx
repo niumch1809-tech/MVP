@@ -28,6 +28,7 @@ export function BomTable({ rows, priceComparisonsByRowId = {} }: Props) {
       { accessorKey: "rowNumber", header: "原行号" },
       { accessorKey: "partNumber", header: "料号" },
       { accessorKey: "materialName", header: "物料名称" },
+      { accessorKey: "normalizedName", header: "匹配名" },
       { accessorKey: "spec", header: "规格型号" },
       {
         id: "standardCategory",

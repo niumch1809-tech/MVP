@@ -43,6 +43,7 @@ export type MaterialComparisonItem = {
   id: string;
   productName: string;
   materialName: string;
+  matchKey: string;
   category: string;
   minPrice: number;
   maxPrice: number;
@@ -148,7 +149,8 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
   rows
     .filter((row) => row.materialName.trim())
     .forEach((row) => {
-      const key = `${row.productName || "未命名产品"}::${row.materialName.trim()}`;
+      const materialKey = row.normalizedName || row.materialName.trim();
+      const key = `${row.productName || "未命名产品"}::${materialKey}`;
       groups.set(key, [...(groups.get(key) ?? []), row]);
     });
 
@@ -181,6 +183,7 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
         id: key,
         productName,
         materialName,
+        matchKey: materialRows[0].normalizedName || materialName,
         category: normalizeCostCategory(materialRows[0].category, materialName),
         minPrice,
         maxPrice,

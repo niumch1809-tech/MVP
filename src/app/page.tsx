@@ -699,6 +699,7 @@ function toRawCsv(rows: CanonicalBomRow[], marketPriceByRowId: Record<string, Ma
     "文件",
     "原行号",
     "物料名称",
+    "匹配名",
     "规格型号",
     "原品类",
     "单位",
@@ -721,6 +722,7 @@ function toRawCsv(rows: CanonicalBomRow[], marketPriceByRowId: Record<string, Ma
       row.sourceFileName,
       row.rowNumber,
       row.materialName,
+      row.normalizedName,
       row.spec,
       row.category,
       row.unit,
@@ -754,7 +756,7 @@ function getMarketRiskLabel(
 
 function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>): string {
   const supplierHeaders = comparison.activeSuppliers.flatMap((supplier) => [`${supplier}单价`, `${supplier}数量`, `${supplier}金额`]);
-  const headers = ["产品", "物料名称", "标准品类", ...supplierHeaders, "最低单价", "最高单价", "差异金额", "差异度", "覆盖供应商"];
+  const headers = ["产品", "物料名称", "匹配键", "标准品类", ...supplierHeaders, "最低单价", "最高单价", "差异金额", "差异度", "覆盖供应商"];
   const body = comparison.materialComparisons.map((item) => {
     const supplierCells = comparison.activeSuppliers.flatMap((supplier) => {
       const point = item.suppliers.find((entry) => entry.supplierName === supplier);
@@ -763,6 +765,7 @@ function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>): st
     return [
       item.productName,
       item.materialName,
+      item.matchKey,
       item.category,
       ...supplierCells,
       item.minPrice,

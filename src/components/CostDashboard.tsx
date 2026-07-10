@@ -360,6 +360,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
           <tr>
             <th className="whitespace-nowrap px-3 py-2 font-semibold">产品</th>
             <SortableHeader label="物料" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
+            <th className="whitespace-nowrap px-3 py-2 font-semibold">匹配键</th>
             <SortableHeader label="品类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
             {suppliers.map((supplier) => (
               <th key={supplier} className="whitespace-nowrap px-3 py-2 text-right font-semibold">
@@ -384,6 +385,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
               >
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">{item.productName}</td>
                 <td className="whitespace-nowrap px-3 py-2 font-medium text-ink">{item.materialName}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{item.matchKey}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-700">{item.category}</td>
                 {suppliers.map((supplier) => {
                   const point = item.suppliers.find((entry) => entry.supplierName === supplier);
@@ -412,7 +414,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={suppliers.length + 8} className="px-3 py-6 text-center text-sm text-slate-500">
+              <td colSpan={suppliers.length + 9} className="px-3 py-6 text-center text-sm text-slate-500">
                 当前筛选范围内没有可对比物料。
               </td>
             </tr>

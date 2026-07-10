@@ -1,7 +1,15 @@
 import * as XLSX from "xlsx";
 import { BomDataIssue, BomFileKind, BomFieldMapping, BomFileRecord, CanonicalBomRow } from "@/types/bom";
 import { mapHeader, scoreHeaderRow } from "./field-map";
-import { hasValue, normalizeMaterialName, normalizeUnit, toNumber } from "./normalize";
+import {
+  hasValue,
+  inferQuantityFromText,
+  inferUnitPriceFromText,
+  normalizeMaterialName,
+  normalizeUnit,
+  parseMaterialDescriptor,
+  toNumber
+} from "./normalize";
 
 type ParseInput = {
   fileId: string;
@@ -97,7 +105,8 @@ function parseWideSupplierRows(input: ParseInput, parsedSheet: ParsedSheet): Can
       currentCategory = category;
     }
 
-    const materialName = getString(row, fields.materialName);
+    const descriptor = parseMaterialDescriptor(getString(row, fields.materialName), getString(row, fields.spec));
+    const materialName = descriptor.materialName;
     if (!materialName) {
       return;
     }
@@ -120,8 +129,8 @@ function parseWideSupplierRows(input: ParseInput, parsedSheet: ParsedSheet): Can
         kind: input.kind,
         partNumber: "",
         materialName,
-        normalizedName: normalizeMaterialName(materialName),
-        spec: "",
+        normalizedName: descriptor.normalizedName,
+        spec: descriptor.spec,
         category: currentCategory,
         unit: "pcs",
         quantity: 1,
@@ -230,14 +239,19 @@ function toCanonicalRow(
   const quantityRaw = getValue(row, fields.quantity);
   const unitPriceRaw = getValue(row, fields.unitPrice);
   const amountRaw = getValue(row, fields.amount);
-  const quantity = toNumber(quantityRaw);
-  const unitPrice = toNumber(unitPriceRaw);
+  const rawMaterialName = getString(row, fields.materialName);
+  const rawSpec = getString(row, fields.spec);
+  const rawRemark = getString(row, fields.remark);
+  const descriptor = parseMaterialDescriptor(rawMaterialName, rawSpec);
+  const inferredQuantity = inferQuantityFromText(rawMaterialName, rawSpec, rawRemark, quantityRaw);
+  const quantity = toNumber(quantityRaw) || inferredQuantity.quantity;
+  const unitPrice = toNumber(unitPriceRaw) || inferUnitPriceFromText(rawMaterialName, rawSpec, rawRemark, unitPriceRaw, amountRaw);
   const explicitAmount = toNumber(amountRaw);
   const calculatedAmount = quantity * unitPrice;
   const shouldCalculateAmount = !hasValue(amountRaw) && quantity > 0 && unitPrice > 0;
   const amount = shouldCalculateAmount ? calculatedAmount : explicitAmount;
   const dataIssues = buildDataIssues({
-    materialName: getString(row, fields.materialName),
+    materialName: descriptor.materialName,
     quantity,
     unitPrice,
     explicitAmount,
@@ -255,11 +269,11 @@ function toCanonicalRow(
     supplierName: input.supplierName,
     kind: input.kind,
     partNumber: getString(row, fields.partNumber),
-    materialName: getString(row, fields.materialName),
-    normalizedName: normalizeMaterialName(getString(row, fields.materialName)),
-    spec: getString(row, fields.spec),
+    materialName: descriptor.materialName,
+    normalizedName: descriptor.normalizedName || normalizeMaterialName(descriptor.materialName),
+    spec: descriptor.spec,
     category: getString(row, fields.category),
-    unit: normalizeUnit(getString(row, fields.unit)),
+    unit: normalizeUnit(getString(row, fields.unit)) || inferredQuantity.unit,
     quantity,
     unitPrice,
     amount,
