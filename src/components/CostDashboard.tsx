@@ -16,6 +16,7 @@ import {
 import { useMemo, useState } from "react";
 import { CanonicalBomRow } from "@/types/bom";
 import { CostComparison, MaterialComparisonItem, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { isRollupCostRow, isSummaryCostItem } from "@/lib/bom/normalize";
 
 type Props = {
   comparison: CostComparison;
@@ -131,7 +132,7 @@ function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows
         </span>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-3">
+      <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
         {comparison.activeSuppliers.map((supplier) => (
           <SupplierPieCard
             key={supplier}
@@ -153,7 +154,7 @@ function SupplierPieCard({
   selectedCategory,
   onInspectRows
 }: Props & { supplier: string }) {
-  const supplierRows = comparison.filteredRows.filter((row) => row.supplierName === supplier);
+  const supplierRows = comparison.filteredRows.filter((row) => row.supplierName === supplier && isVisualCostRow(row));
   const pieRows = selectedCategory
     ? buildSupplierMaterialPieRows(supplierRows)
     : buildSupplierCategoryPieRows(supplierRows);
@@ -170,7 +171,7 @@ function SupplierPieCard({
           {pieRows.length} 项
         </span>
       </div>
-      <div className="h-56">
+      <div className="h-60 overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Tooltip
@@ -196,7 +197,7 @@ function SupplierPieCard({
                 <Cell key={entry.name} fill={STRUCTURE_COLORS[index % STRUCTURE_COLORS.length]} />
               ))}
             </Pie>
-            <Legend layout="vertical" align="right" verticalAlign="middle" iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+            <Legend layout="horizontal" align="center" verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 11 }} />
           </PieChart>
         </ResponsiveContainer>
       </div>
@@ -214,7 +215,7 @@ function buildSupplierCategoryPieRows(rows: CanonicalBomRow[]) {
     current.rows.push(row);
     groups.set(category, current);
   });
-  return Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
+  return compactChartRows(Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value), 10);
 }
 
 function buildSupplierMaterialPieRows(rows: CanonicalBomRow[]) {
@@ -226,7 +227,7 @@ function buildSupplierMaterialPieRows(rows: CanonicalBomRow[]) {
     current.rows.push(row);
     groups.set(name, current);
   });
-  return Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value).slice(0, 12);
+  return compactChartRows(Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value), 10);
 }
 
 function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCategory">) {
@@ -239,12 +240,12 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
         </div>
         <span className="text-xs text-slate-500">横坐标为品类，柱子为供应商</span>
       </div>
-      <div className="hairline-grid border border-slate-200 bg-slate-50/70 p-3">
-        <div className="h-64">
+      <div className="hairline-grid overflow-x-auto border border-slate-200 bg-slate-50/70 p-3">
+        <div className="h-72" style={{ minWidth: Math.max(720, comparison.categoryComparison.length * Math.max(120, comparison.activeSuppliers.length * 34)) }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={comparison.categoryComparison}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="category" tick={{ fontSize: 12 }} />
+            <XAxis dataKey="category" tick={{ fontSize: 12 }} interval={0} angle={-18} textAnchor="end" height={72} />
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip formatter={(value) => formatMoney(Number(value))} />
             <Legend />
@@ -276,7 +277,8 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
 }
 
 function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
-  const chartRows = comparison.materialComparisons.slice(0, 40).map((item) => {
+  const maxChartItems = 24;
+  const chartRows = comparison.materialComparisons.slice(0, maxChartItems).map((item) => {
     const result: Record<string, string | number | CanonicalBomRow[]> = {
       materialName: item.materialName,
       productName: item.productName,
@@ -297,8 +299,8 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
         </div>
         <span className="text-xs text-slate-500">横坐标为物料，柱子为供应商</span>
       </div>
-      <div className="hairline-grid border border-slate-200 bg-slate-50/70 p-3">
-        <div className="h-64">
+      <div className="hairline-grid overflow-x-auto border border-slate-200 bg-slate-50/70 p-3">
+        <div className="h-80" style={{ minWidth: Math.max(820, chartRows.length * Math.max(110, comparison.activeSuppliers.length * 34)) }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartRows}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -327,7 +329,7 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
         </div>
       </div>
       {comparison.materialComparisons.length > chartRows.length && (
-        <p className="mt-2 text-xs text-slate-500">图表显示差异最大的前 40 个物料，完整物料仍在下方表格中。</p>
+        <p className="mt-2 text-xs text-slate-500">图表显示差异最大的前 {maxChartItems} 个物料，完整物料仍在下方表格中。</p>
       )}
     </section>
   );
@@ -462,6 +464,22 @@ function compareMaterial(a: MaterialComparisonItem, b: MaterialComparisonItem, k
   if (key === "diffRate") return a.diffRate - b.diffRate;
   if (key === "coverage") return a.suppliers.length - b.suppliers.length;
   return a.diffAmount - b.diffAmount;
+}
+
+function isVisualCostRow(row: CanonicalBomRow): boolean {
+  return row.amount > 0 && !isSummaryCostItem(row.materialName, row.category) && !isRollupCostRow(row.materialName, row.category);
+}
+
+function compactChartRows<T extends { name: string; value: number; rows: CanonicalBomRow[] }>(rows: T[], limit: number): T[] {
+  if (rows.length <= limit) return rows;
+  const visible = rows.slice(0, limit - 1);
+  const otherRows = rows.slice(limit - 1);
+  const other = {
+    name: "其他",
+    value: otherRows.reduce((sum, item) => sum + item.value, 0),
+    rows: otherRows.flatMap((item) => item.rows)
+  } as T;
+  return [...visible, other];
 }
 
 function formatMoney(value: number): string {

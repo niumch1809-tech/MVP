@@ -9,20 +9,43 @@ type Props = {
   onInspectRows: (rows: CanonicalBomRow[], title: string) => void;
 };
 
-type SortKey = "productName" | "materialName" | "category" | "diffRate" | "diffAmount" | "coverage";
+type SortKey = "category" | "materialName" | "diffRate" | "diffAmount" | "coverage";
 type SortDirection = "asc" | "desc";
 
+type DisplayRow =
+  | {
+      kind: "category";
+      id: string;
+      category: string;
+      name: "分类合计";
+      amounts: Record<string, number>;
+      diffAmount: number;
+      diffRate: number;
+      coverage: number;
+      totalSlots: number;
+      rows: CanonicalBomRow[];
+    }
+  | {
+      kind: "item";
+      id: string;
+      category: string;
+      name: string;
+      matchKey: string;
+      productName: string;
+      amounts: Record<string, number>;
+      diffAmount: number;
+      diffRate: number;
+      coverage: number;
+      totalSlots: number;
+      rows: CanonicalBomRow[];
+    };
+
 export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>("diffAmount");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [sortKey, setSortKey] = useState<SortKey>("category");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const suppliers = comparison.activeSuppliers;
 
-  const rows = useMemo(() => {
-    return [...comparison.materialComparisons].sort((a, b) => {
-      const direction = sortDirection === "asc" ? 1 : -1;
-      return compareByKey(a, b, sortKey) * direction;
-    });
-  }, [comparison.materialComparisons, sortDirection, sortKey]);
+  const rows = useMemo(() => buildDisplayRows(comparison, sortKey, sortDirection), [comparison, sortDirection, sortKey]);
 
   function toggleSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -30,7 +53,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
       return;
     }
     setSortKey(nextKey);
-    setSortDirection(nextKey === "productName" || nextKey === "materialName" || nextKey === "category" ? "asc" : "desc");
+    setSortDirection(nextKey === "category" || nextKey === "materialName" ? "asc" : "desc");
   }
 
   return (
@@ -38,10 +61,10 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
       <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-ink">完整成本对比表</h3>
-          <p className="text-xs text-slate-500">按物料名称整合，不要求原始文件已分类或完全对齐。</p>
+          <p className="text-xs text-slate-500">先按标准分类合计，再展开可追溯明细；差值按第二个对比对象减第一个。</p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-          {rows.length} 个物料 / {suppliers.length} 家供应商
+          {comparison.materialComparisons.length} 个物料 / {suppliers.length} 个对比对象
         </span>
       </div>
 
@@ -49,60 +72,74 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
         <table className="min-w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 bg-white/95 text-xs text-slate-500 shadow-sm">
             <tr>
-              <SortHeader label="产品" active={sortKey === "productName"} direction={sortDirection} onClick={() => toggleSort("productName")} />
-              <SortHeader label="物料" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
-              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">匹配键</th>
-              <SortHeader label="标准品类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
+              <SortHeader label="分类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
+              <SortHeader label="名称" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
               {suppliers.map((supplier) => (
                 <th key={supplier} className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
-                  {supplier}
+                  {supplier}报价
                 </th>
               ))}
-              <SortHeader label="最低单价" active={false} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
-              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">最高单价</th>
-              <SortHeader label="差异金额" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
-              <SortHeader label="差异度" active={sortKey === "diffRate"} direction={sortDirection} align="right" onClick={() => toggleSort("diffRate")} />
+              <SortHeader label="差值" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
+              <SortHeader label="百分比" active={sortKey === "diffRate"} direction={sortDirection} align="right" onClick={() => toggleSort("diffRate")} />
               <SortHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
+              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">追溯</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((item) => (
               <tr
                 key={item.id}
-                className="cursor-pointer border-b border-slate-100 bg-white transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-50"
-                onClick={() => onInspectRows(item.rows, `整合表来源：${item.productName} / ${item.materialName}`)}
+                className={`cursor-pointer border-b border-slate-100 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-50 ${
+                  item.kind === "category" ? "bg-slate-50/80 font-semibold" : "bg-white"
+                }`}
+                onClick={() => onInspectRows(item.rows, `${item.kind === "category" ? "分类合计" : "整合明细"}：${item.category} / ${item.name}`)}
               >
-                <td className="whitespace-nowrap px-3 py-3 text-slate-600">{item.productName}</td>
-                <td className="whitespace-nowrap px-3 py-3 font-semibold text-ink">{item.materialName}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">{item.matchKey}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-slate-600">{item.category}</td>
-                {suppliers.map((supplier) => {
-                  const point = item.suppliers.find((entry) => entry.supplierName === supplier);
-                  return (
-                    <td key={supplier} className="whitespace-nowrap px-3 py-3 text-right text-slate-700">
-                      {point ? (
-                        <span>
-                          {formatMoney(point.unitPrice)}
-                          <span className="ml-1 text-xs text-slate-400">x{formatNumber(point.quantity)}</span>
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-warn">缺项</span>
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700">{formatMoney(item.minPrice)}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700">{formatMoney(item.maxPrice)}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-danger">{formatMoney(item.diffAmount)}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-danger">{formatPercent(item.diffRate)}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-right text-slate-600">
-                  {item.suppliers.length}/{suppliers.length}
+                <td className="whitespace-nowrap px-3 py-3 text-slate-700">{item.category}</td>
+                <td className="whitespace-nowrap px-3 py-3 text-ink">
+                  {item.kind === "item" ? <span className="mr-2 text-slate-300">└</span> : null}
+                  {item.name}
                 </td>
+                {suppliers.map((supplier) => (
+                  <td key={supplier} className="whitespace-nowrap px-3 py-3 text-right text-slate-700">
+                    {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-slate-300">-</span>}
+                  </td>
+                ))}
+                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
+                  {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
+                </td>
+                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
+                  {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-right text-slate-600">
+                  {item.coverage}/{item.totalSlots}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
+                  {item.kind === "item" ? `${item.productName} / ${item.matchKey}` : `${item.rows.length} 行来源`}
+                </td>
+              </tr>
+            ))}
+            {buildSummaryRows(comparison).map((item) => (
+              <tr key={item.label} className="border-b border-slate-100 bg-ink text-white">
+                <td className="whitespace-nowrap px-3 py-3">总计核验</td>
+                <td className="whitespace-nowrap px-3 py-3 font-semibold">{item.label}</td>
+                {suppliers.map((supplier) => (
+                  <td key={supplier} className="whitespace-nowrap px-3 py-3 text-right">
+                    {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-white/35">-</span>}
+                  </td>
+                ))}
+                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
+                  {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
+                </td>
+                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
+                  {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-right text-white/70">-</td>
+                <td className="whitespace-nowrap px-3 py-3 text-xs text-white/65">{item.note}</td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={suppliers.length + 9} className="px-3 py-10 text-center text-sm text-slate-500">
+                <td colSpan={suppliers.length + 6} className="px-3 py-10 text-center text-sm text-slate-500">
                   当前没有可输出的整合对比数据。
                 </td>
               </tr>
@@ -112,6 +149,82 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
       </div>
     </div>
   );
+}
+
+function buildSummaryRows(comparison: CostComparison) {
+  return [
+    {
+      label: "材料成本合计",
+      note: "优先使用表内合计，否则由明细汇总",
+      amounts: comparison.totals.materialTotals
+    },
+    {
+      label: "人工/管理/利润合计",
+      note: "优先使用表内费用，否则由出厂价减材料成本推导",
+      amounts: comparison.totals.derivedOverheadTotals
+    },
+    {
+      label: "出厂价",
+      note: "来自 BOM/报价表中的出厂价字段或行",
+      amounts: comparison.totals.factoryPriceTotals
+    }
+  ].map((row) => {
+    const pair = getPairDiff(comparison.activeSuppliers.map((supplier) => row.amounts[supplier] ?? 0));
+    return { ...row, diffAmount: pair.diffAmount, diffRate: pair.diffRate };
+  });
+}
+
+function buildDisplayRows(comparison: CostComparison, sortKey: SortKey, sortDirection: SortDirection): DisplayRow[] {
+  const direction = sortDirection === "asc" ? 1 : -1;
+  const rows: DisplayRow[] = [];
+
+  comparison.categories.forEach((category) => {
+    const items = comparison.materialComparisons.filter((item) => item.category === category);
+    if (items.length === 0) return;
+
+    const sortedItems = [...items].sort((a, b) => compareItem(a, b, sortKey) * direction);
+    const categoryAmounts = Object.fromEntries(
+      comparison.activeSuppliers.map((supplier) => [
+        supplier,
+        sortedItems.reduce((sum, item) => sum + getSupplierAmount(item, supplier), 0)
+      ])
+    );
+    const pair = getPairDiff(comparison.activeSuppliers.map((supplier) => categoryAmounts[supplier] ?? 0));
+
+    rows.push({
+      kind: "category",
+      id: `category-${category}`,
+      category,
+      name: "分类合计",
+      amounts: categoryAmounts,
+      diffAmount: pair.diffAmount,
+      diffRate: pair.diffRate,
+      coverage: sortedItems.reduce((sum, item) => sum + item.suppliers.length, 0),
+      totalSlots: sortedItems.length * comparison.activeSuppliers.length,
+      rows: sortedItems.flatMap((item) => item.rows)
+    });
+
+    sortedItems.forEach((item) => {
+      const amounts = Object.fromEntries(comparison.activeSuppliers.map((supplier) => [supplier, getSupplierAmount(item, supplier)]));
+      const itemPair = getPairDiff(comparison.activeSuppliers.map((supplier) => amounts[supplier] ?? 0));
+      rows.push({
+        kind: "item",
+        id: item.id,
+        category: item.category,
+        name: item.materialName,
+        matchKey: item.matchKey,
+        productName: item.productName,
+        amounts,
+        diffAmount: itemPair.diffAmount,
+        diffRate: itemPair.diffRate,
+        coverage: item.suppliers.length,
+        totalSlots: comparison.activeSuppliers.length,
+        rows: item.rows
+      });
+    });
+  });
+
+  return rows;
 }
 
 function SortHeader({
@@ -143,21 +256,26 @@ function SortHeader({
   );
 }
 
-function compareByKey(a: MaterialComparisonItem, b: MaterialComparisonItem, key: SortKey): number {
+function compareItem(a: MaterialComparisonItem, b: MaterialComparisonItem, key: SortKey): number {
   if (key === "materialName") return a.materialName.localeCompare(b.materialName, "zh-CN");
-  if (key === "productName") return a.productName.localeCompare(b.productName, "zh-CN");
-  if (key === "category") return a.category.localeCompare(b.category, "zh-CN");
+  if (key === "category") return a.category.localeCompare(b.category, "zh-CN") || a.materialName.localeCompare(b.materialName, "zh-CN");
   if (key === "diffRate") return a.diffRate - b.diffRate;
   if (key === "coverage") return a.suppliers.length - b.suppliers.length;
   return a.diffAmount - b.diffAmount;
 }
 
-function formatMoney(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(2) : "0.00";
+function getSupplierAmount(item: MaterialComparisonItem, supplier: string): number {
+  return item.suppliers.find((entry) => entry.supplierName === supplier)?.amount ?? 0;
 }
 
-function formatNumber(value: number): string {
-  return Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: 2 }) : "0";
+function getPairDiff(values: number[]): { diffAmount: number; diffRate: number } {
+  if (values.length < 2 || values[0] <= 0) return { diffAmount: Number.NaN, diffRate: Number.NaN };
+  const diffAmount = values[1] - values[0];
+  return { diffAmount, diffRate: diffAmount / values[0] };
+}
+
+function formatMoney(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : "0.00";
 }
 
 function formatPercent(value: number): string {

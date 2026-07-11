@@ -5,6 +5,7 @@ import {
   hasValue,
   inferQuantityFromText,
   inferUnitPriceFromText,
+  isSummaryCostItem,
   normalizeMaterialName,
   normalizeUnit,
   parseMaterialDescriptor,
@@ -23,6 +24,7 @@ type ParseInput = {
 
 type ParsedSheet = {
   sheetName: string;
+  sheetIndex: number;
   headerRowIndex: number;
   headers: string[];
   rows: Record<string, unknown>[];
@@ -31,6 +33,8 @@ type ParsedSheet = {
 };
 
 const REQUIRED_FIELDS: Array<keyof BomFieldMapping> = ["materialName", "quantity", "unitPrice"];
+
+const GENERIC_SHEET_NAMES = new Set(["sheet1", "sheet2", "sheet3", "工作表1", "工作表2", "工作表3", "报价", "bom"]);
 
 export function parseBomWorkbook(input: ParseInput): BomFileRecord {
   const workbook = XLSX.read(input.buffer, {
@@ -43,33 +47,62 @@ export function parseBomWorkbook(input: ParseInput): BomFileRecord {
     throw new Error("文件中没有可读取的工作表。");
   }
 
-  const parsedSheet = readFirstSheet(workbook);
-  const rows = isWideSupplierSheet(parsedSheet)
-    ? parseWideSupplierRows(input, parsedSheet)
-    : parsedSheet.rows
-        .map((row, index) => toCanonicalRow(input, parsedSheet, row, index))
-        .filter((row) => row.materialName || row.partNumber || row.quantity || row.unitPrice || row.amount);
+  const parsedSheets = readWorkbookSheets(workbook);
+  if (parsedSheets.length === 0) {
+    throw new Error("文件中没有识别到可解析的 BOM 工作表。");
+  }
 
-  const missingRequired = REQUIRED_FIELDS.filter((field) => !parsedSheet.fieldMapping[field]);
+  const hasMultipleSheets = parsedSheets.length > 1;
+  const rows = parsedSheets.flatMap((parsedSheet) => {
+    const sheetInput = {
+      ...input,
+      supplierName: resolveQuoteName(input, parsedSheet, hasMultipleSheets)
+    };
+    return isWideSupplierSheet(parsedSheet)
+      ? parseWideSupplierRows(sheetInput, parsedSheet, hasMultipleSheets)
+      : parsedSheet.rows
+          .map((row, index) => toCanonicalRow(sheetInput, parsedSheet, row, index))
+          .filter((row) => row.materialName || row.partNumber || row.quantity || row.unitPrice || row.amount);
+  });
+
   const parseWarnings = [
-    ...parsedSheet.warnings,
-    ...(isWideSupplierSheet(parsedSheet) ? ["识别为多供应商横向报价表，已按供应商列展开为 BOM 明细。"] : []),
-    ...(isWideSupplierSheet(parsedSheet) ? [] : missingRequired.map((field) => `未识别到关键字段：${field}`))
+    ...(hasMultipleSheets ? [`识别到 ${parsedSheets.length} 个有效工作表，已按工作表名称拆分为不同报价对象。`] : []),
+    ...parsedSheets.flatMap((parsedSheet) => {
+      const missingRequired = REQUIRED_FIELDS.filter((field) => !parsedSheet.fieldMapping[field]);
+      return [
+        ...parsedSheet.warnings.map((warning) => `${parsedSheet.sheetName}：${warning}`),
+        ...(isWideSupplierSheet(parsedSheet) ? [`${parsedSheet.sheetName}：识别为多供应商横向报价表，已按供应商列展开为 BOM 明细。`] : []),
+        ...(isWideSupplierSheet(parsedSheet) ? [] : missingRequired.map((field) => `${parsedSheet.sheetName}：未识别到关键字段：${field}`))
+      ];
+    })
   ];
 
   return {
     id: input.fileId,
     fileName: input.fileName,
     productName: input.productName,
-    supplierName: input.supplierName,
+    supplierName: hasMultipleSheets ? `${input.supplierName}（多工作表）` : rows[0]?.supplierName ?? input.supplierName,
     kind: input.kind,
     uploadedAt: new Date().toISOString(),
-    sheetName: parsedSheet.sheetName,
+    sheetName: parsedSheets.map((sheet) => sheet.sheetName).join(" / "),
     rowCount: rows.length,
-    fieldMapping: parsedSheet.fieldMapping,
+    fieldMapping: parsedSheets[0].fieldMapping,
     parseWarnings,
     rows
   };
+}
+
+function resolveQuoteName(input: ParseInput, parsedSheet: ParsedSheet, hasMultipleSheets: boolean): string {
+  const sheetName = parsedSheet.sheetName.trim();
+  if (!hasMultipleSheets) {
+    return input.supplierName;
+  }
+
+  if (sheetName && !GENERIC_SHEET_NAMES.has(sheetName.toLowerCase())) {
+    return sheetName;
+  }
+
+  return `${input.supplierName}-报价${parsedSheet.sheetIndex + 1}`;
 }
 
 function isWideSupplierSheet(parsedSheet: ParsedSheet): boolean {
@@ -91,7 +124,7 @@ function isWideSupplierSheet(parsedSheet: ParsedSheet): boolean {
   return Boolean(fields.category && fields.materialName && !fields.unitPrice && !fields.amount && supplierColumns.length >= 1);
 }
 
-function parseWideSupplierRows(input: ParseInput, parsedSheet: ParsedSheet): CanonicalBomRow[] {
+function parseWideSupplierRows(input: ParseInput, parsedSheet: ParsedSheet, hasMultipleSheets = false): CanonicalBomRow[] {
   const fields = parsedSheet.fieldMapping;
   const supplierColumns = parsedSheet.headers.filter(
     (header) => header !== fields.category && header !== fields.materialName && header !== fields.remark
@@ -119,13 +152,13 @@ function parseWideSupplierRows(input: ParseInput, parsedSheet: ParsedSheet): Can
 
       const amount = toNumber(rawPrice);
       const canonicalRow: CanonicalBomRow = {
-        id: `${input.fileId}-${rowIndex + 1}-${supplierColumn}`,
+        id: `${input.fileId}-s${parsedSheet.sheetIndex + 1}-${rowIndex + 1}-${supplierColumn}`,
         sourceFileId: input.fileId,
         sourceFileName: input.fileName,
         sheetName: parsedSheet.sheetName,
         rowNumber: parsedSheet.headerRowIndex + rowIndex + 2,
         productName: input.productName,
-        supplierName: supplierColumn,
+        supplierName: hasMultipleSheets ? `${input.supplierName} - ${supplierColumn}` : supplierColumn,
         kind: input.kind,
         partNumber: "",
         materialName,
@@ -161,8 +194,12 @@ function isUsablePrice(value: unknown): boolean {
   return text !== "" && text !== "/" && text !== "-" && text.toLowerCase() !== "n/a";
 }
 
-function readFirstSheet(workbook: XLSX.WorkBook): ParsedSheet {
-  const sheetName = workbook.SheetNames[0];
+function readWorkbookSheets(workbook: XLSX.WorkBook): ParsedSheet[] {
+  return workbook.SheetNames.map((sheetName, sheetIndex) => readSheet(workbook, sheetName, sheetIndex))
+    .filter((sheet) => sheet.rows.length > 0 || Object.keys(sheet.fieldMapping).length > 0);
+}
+
+function readSheet(workbook: XLSX.WorkBook, sheetName: string, sheetIndex: number): ParsedSheet {
   const sheet = workbook.Sheets[sheetName];
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
@@ -188,6 +225,7 @@ function readFirstSheet(workbook: XLSX.WorkBook): ParsedSheet {
 
   return {
     sheetName,
+    sheetIndex,
     headerRowIndex,
     headers,
     rows,
@@ -243,10 +281,15 @@ function toCanonicalRow(
   const rawSpec = getString(row, fields.spec);
   const rawRemark = getString(row, fields.remark);
   const descriptor = parseMaterialDescriptor(rawMaterialName, rawSpec);
+  const rawCategory = getString(row, fields.category);
   const inferredQuantity = inferQuantityFromText(rawMaterialName, rawSpec, rawRemark, quantityRaw);
-  const quantity = toNumber(quantityRaw) || inferredQuantity.quantity;
-  const unitPrice = toNumber(unitPriceRaw) || inferUnitPriceFromText(rawMaterialName, rawSpec, rawRemark, unitPriceRaw, amountRaw);
   const explicitAmount = toNumber(amountRaw);
+  const isSummaryRow = isSummaryCostItem(descriptor.materialName, rawCategory);
+  const quantity = toNumber(quantityRaw) || inferredQuantity.quantity || (isSummaryRow && explicitAmount > 0 ? 1 : 0);
+  const unitPrice =
+    toNumber(unitPriceRaw) ||
+    inferUnitPriceFromText(rawMaterialName, rawSpec, rawRemark, unitPriceRaw, amountRaw) ||
+    (isSummaryRow && explicitAmount > 0 ? explicitAmount : 0);
   const calculatedAmount = quantity * unitPrice;
   const shouldCalculateAmount = !hasValue(amountRaw) && quantity > 0 && unitPrice > 0;
   const amount = shouldCalculateAmount ? calculatedAmount : explicitAmount;
@@ -260,7 +303,7 @@ function toCanonicalRow(
   });
 
   return {
-    id: `${input.fileId}-${index + 1}`,
+    id: `${input.fileId}-s${parsedSheet.sheetIndex + 1}-${index + 1}`,
     sourceFileId: input.fileId,
     sourceFileName: input.fileName,
     sheetName: parsedSheet.sheetName,
@@ -272,7 +315,7 @@ function toCanonicalRow(
     materialName: descriptor.materialName,
     normalizedName: descriptor.normalizedName || normalizeMaterialName(descriptor.materialName),
     spec: descriptor.spec,
-    category: getString(row, fields.category),
+    category: rawCategory,
     unit: normalizeUnit(getString(row, fields.unit)) || inferredQuantity.unit,
     quantity,
     unitPrice,

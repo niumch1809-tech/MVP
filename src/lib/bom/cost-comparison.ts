@@ -1,4 +1,5 @@
 import { CanonicalBomRow } from "@/types/bom";
+import { isRollupCostRow, isSummaryCostItem, normalizeBomCategory } from "./normalize";
 
 export const STANDARD_CATEGORIES = [
   "结构件",
@@ -9,8 +10,32 @@ export const STANDARD_CATEGORIES = [
   "表面处理",
   "模具/治具",
   "物流/损耗",
+  "吊钟组",
+  "吊杆组",
+  "端子排/端子座",
+  "电线/线组",
+  "包装袋",
+  "五金包",
+  "说明书",
+  "灯盘组",
+  "叶片组",
+  "人工/管理/利润",
+  "材料成本合计",
+  "出厂价",
   "其他"
 ] as const;
+
+const CATEGORY_MATCH_KEY_ONLY = new Set([
+  "吊钟组",
+  "吊杆组",
+  "端子排/端子座",
+  "电线/线组",
+  "包装袋",
+  "五金包",
+  "说明书",
+  "灯盘组",
+  "叶片组"
+]);
 
 export type CostFilters = {
   supplierNames: string[];
@@ -53,6 +78,13 @@ export type MaterialComparisonItem = {
   rows: CanonicalBomRow[];
 };
 
+export type CostTotals = {
+  materialTotals: Record<string, number>;
+  overheadTotals: Record<string, number>;
+  factoryPriceTotals: Record<string, number>;
+  derivedOverheadTotals: Record<string, number>;
+};
+
 export type CostComparison = {
   filteredRows: CanonicalBomRow[];
   supplierTotals: SupplierTotal[];
@@ -62,6 +94,7 @@ export type CostComparison = {
   products: string[];
   suppliers: string[];
   activeSuppliers: string[];
+  totals: CostTotals;
 };
 
 export function buildCostComparison(rows: CanonicalBomRow[], filters: CostFilters): CostComparison {
@@ -71,30 +104,23 @@ export function buildCostComparison(rows: CanonicalBomRow[], filters: CostFilter
   const activeSuppliers =
     filters.supplierNames.length > 0 ? suppliers.filter((supplier) => filters.supplierNames.includes(supplier)) : suppliers;
   const filteredRows = quoteRows.filter((row) => matchesFilters(row, filters));
+  const comparableRows = filteredRows.filter(isComparableCostRow);
 
   return {
     filteredRows,
-    supplierTotals: buildSupplierTotals(filteredRows),
-    categoryComparison: buildCategoryComparison(filteredRows, activeSuppliers),
-    materialComparisons: buildMaterialComparisons(filteredRows, activeSuppliers),
-    categories: STANDARD_CATEGORIES.slice(),
+    supplierTotals: buildSupplierTotals(filteredRows, activeSuppliers),
+    categoryComparison: buildCategoryComparison(comparableRows, activeSuppliers),
+    materialComparisons: buildMaterialComparisons(comparableRows, activeSuppliers),
+    categories: buildCategories(comparableRows),
     products,
     suppliers,
-    activeSuppliers
+    activeSuppliers,
+    totals: buildCostTotals(filteredRows, activeSuppliers)
   };
 }
 
 export function normalizeCostCategory(category: string, materialName = ""): string {
-  const text = `${category} ${materialName}`.toLowerCase();
-  if (/结构|外壳|壳体|铝|五金|支架|灯体|塑件|housing|case/.test(text)) return "结构件";
-  if (/电子|电阻|电容|芯片|驱动|电源|控制器|线材|pcb|ic|mcu|driver|resistor|capacitor/.test(text)) return "电子料";
-  if (/光源|光电|灯珠|led|cob|铝基板/.test(text)) return "光源";
-  if (/包装|纸箱|彩盒|泡沫|泡棉|说明书|标签|外箱|carton|box|package/.test(text)) return "包装";
-  if (/人工|工时|组装|装配|labor/.test(text)) return "人工";
-  if (/表面|喷涂|电镀|氧化|烤漆|处理|finish|coating/.test(text)) return "表面处理";
-  if (/模具|治具|夹具|tooling|fixture|mold/.test(text)) return "模具/治具";
-  if (/物流|运输|损耗|运费|loss|freight|shipping/.test(text)) return "物流/损耗";
-  return "其他";
+  return normalizeBomCategory(category, materialName);
 }
 
 function matchesFilters(row: CanonicalBomRow, filters: CostFilters): boolean {
@@ -110,23 +136,30 @@ function matchesFilters(row: CanonicalBomRow, filters: CostFilters): boolean {
   );
 }
 
-function buildSupplierTotals(rows: CanonicalBomRow[]): SupplierTotal[] {
-  const groups = new Map<string, SupplierTotal>();
-  rows.forEach((row) => {
-    const current = groups.get(row.supplierName) ?? {
-      supplierName: row.supplierName,
-      totalAmount: 0,
-      rowCount: 0
-    };
-    current.totalAmount += row.amount;
-    current.rowCount += 1;
-    groups.set(row.supplierName, current);
-  });
-  return Array.from(groups.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+function buildSupplierTotals(rows: CanonicalBomRow[], suppliers: string[]): SupplierTotal[] {
+  return suppliers
+    .map((supplierName) => {
+      const supplierRows = rows.filter((row) => row.supplierName === supplierName);
+      const factory = supplierRows
+        .filter((row) => normalizeCostCategory(row.category, row.materialName) === "出厂价")
+        .reduce((sum, row) => sum + row.amount, 0);
+      const overhead = supplierRows
+        .filter((row) => ["人工", "人工/管理/利润"].includes(normalizeCostCategory(row.category, row.materialName)) && !isRollupCostRow(row.materialName, row.category))
+        .reduce((sum, row) => sum + row.amount, 0);
+      const materialDetail = supplierRows.filter(isComparableCostRow).reduce((sum, row) => sum + row.amount, 0);
+
+      return {
+        supplierName,
+        totalAmount: factory || materialDetail + overhead,
+        rowCount: supplierRows.length
+      };
+    })
+    .filter((item) => item.rowCount > 0)
+    .sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
 function buildCategoryComparison(rows: CanonicalBomRow[], suppliers: string[]): CategoryComparisonRow[] {
-  return STANDARD_CATEGORIES.map((category) => {
+  return buildCategories(rows).map((category) => {
     const categoryRows = rows.filter((row) => normalizeCostCategory(row.category, row.materialName) === category);
     const result: CategoryComparisonRow = {
       category,
@@ -149,7 +182,7 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
   rows
     .filter((row) => row.materialName.trim())
     .forEach((row) => {
-      const materialKey = row.normalizedName || row.materialName.trim();
+      const materialKey = buildMaterialMatchKey(row);
       const key = `${row.productName || "未命名产品"}::${materialKey}`;
       groups.set(key, [...(groups.get(key) ?? []), row]);
     });
@@ -182,8 +215,8 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
       return {
         id: key,
         productName,
-        materialName,
-        matchKey: materialRows[0].normalizedName || materialName,
+        materialName: buildDisplayMaterialName(materialRows),
+        matchKey: buildMaterialMatchKey(materialRows[0]),
         category: normalizeCostCategory(materialRows[0].category, materialName),
         minPrice,
         maxPrice,
@@ -194,6 +227,71 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
       };
     })
     .sort((a, b) => b.diffAmount - a.diffAmount || b.maxPrice - a.maxPrice);
+}
+
+function isComparableCostRow(row: CanonicalBomRow): boolean {
+  return row.amount > 0 && !isSummaryCostItem(row.materialName, row.category) && !isRollupCostRow(row.materialName, row.category);
+}
+
+function buildMaterialMatchKey(row: CanonicalBomRow): string {
+  const category = normalizeCostCategory(row.category, row.materialName);
+  const base = row.normalizedName || row.materialName.trim();
+  if (CATEGORY_MATCH_KEY_ONLY.has(category)) {
+    return `${category}::同类部件`;
+  }
+  if (category !== "其他" && /^[\p{Script=Han}a-z0-9/]+$/iu.test(base)) {
+    return `${category}::${base}`;
+  }
+  return base;
+}
+
+function buildDisplayMaterialName(rows: CanonicalBomRow[]): string {
+  const first = rows[0];
+  const normalized = first.normalizedName || first.materialName.trim();
+  const originals = Array.from(new Set(rows.map((row) => row.materialName.trim()).filter(Boolean)));
+  if (originals.length > 1) {
+    return `${normalized}（${originals.slice(0, 3).join(" / ")}${originals.length > 3 ? "..." : ""}）`;
+  }
+  return normalized || originals[0] || "未命名物料";
+}
+
+function buildCategories(rows: CanonicalBomRow[]): string[] {
+  const dynamic = uniqueSorted(rows.map((row) => normalizeCostCategory(row.category, row.materialName)).filter(Boolean));
+  const canonicalOrder = STANDARD_CATEGORIES.slice();
+  return [
+    ...canonicalOrder.filter((category) => dynamic.includes(category)),
+    ...dynamic.filter((category) => !canonicalOrder.includes(category as (typeof STANDARD_CATEGORIES)[number]))
+  ];
+}
+
+function buildCostTotals(rows: CanonicalBomRow[], suppliers: string[]): CostTotals {
+  const materialTotals: Record<string, number> = {};
+  const overheadTotals: Record<string, number> = {};
+  const factoryPriceTotals: Record<string, number> = {};
+  const derivedOverheadTotals: Record<string, number> = {};
+
+  suppliers.forEach((supplier) => {
+    const supplierRows = rows.filter((row) => row.supplierName === supplier);
+    const materialSummary = supplierRows
+      .filter((row) => normalizeCostCategory(row.category, row.materialName) === "材料成本合计")
+      .reduce((sum, row) => sum + row.amount, 0);
+    const materialDetail = supplierRows
+      .filter(isComparableCostRow)
+      .reduce((sum, row) => sum + row.amount, 0);
+    const overhead = supplierRows
+      .filter((row) => ["人工", "人工/管理/利润"].includes(normalizeCostCategory(row.category, row.materialName)) && !isRollupCostRow(row.materialName, row.category))
+      .reduce((sum, row) => sum + row.amount, 0);
+    const factory = supplierRows
+      .filter((row) => normalizeCostCategory(row.category, row.materialName) === "出厂价")
+      .reduce((sum, row) => sum + row.amount, 0);
+
+    materialTotals[supplier] = materialSummary || materialDetail;
+    overheadTotals[supplier] = overhead;
+    factoryPriceTotals[supplier] = factory;
+    derivedOverheadTotals[supplier] = overhead || (factory > 0 ? Math.max(factory - materialTotals[supplier], 0) : 0);
+  });
+
+  return { materialTotals, overheadTotals, factoryPriceTotals, derivedOverheadTotals };
 }
 
 function uniqueSorted(values: string[]): string[] {

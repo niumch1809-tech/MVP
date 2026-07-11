@@ -5,7 +5,7 @@ import { BomTable } from "@/components/BomTable";
 import { CostDashboard } from "@/components/CostDashboard";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
-import { buildCostComparison, CostFilters, STANDARD_CATEGORIES } from "@/lib/bom/cost-comparison";
+import { buildCostComparison, CostFilters } from "@/lib/bom/cost-comparison";
 import { parseMaterialPriceFile } from "@/lib/bom/price-table-client";
 import {
   BomFileKind,
@@ -109,10 +109,11 @@ export default function Home() {
     }
 
     if ("records" in result) {
+      const quoteObjectCount = new Set(result.records.flatMap((record) => record.rows.map((row) => row.supplierName))).size;
       setUploadErrors(result.errors);
       setMessage(
         result.records.length > 0
-          ? `成功解析 ${result.records.length} 个文件，合计 ${result.records.reduce((sum, record) => sum + record.rowCount, 0)} 行。`
+          ? `成功解析 ${result.records.length} 个文件 / ${quoteObjectCount} 个报价对象，合计 ${result.records.reduce((sum, record) => sum + record.rowCount, 0)} 行。`
           : "没有文件解析成功，请检查表头和文件格式。"
       );
       if (result.records.length > 0) setActiveView("compare");
@@ -644,7 +645,7 @@ function FilterPanel({
             className="mt-2 h-11 w-full rounded-[16px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
           >
             <option value="">全部品类</option>
-            {STANDARD_CATEGORIES.map((category) => (
+            {comparison.categories.map((category) => (
               <option key={category} value={category}>
                 {category}
               </option>
@@ -755,28 +756,77 @@ function getMarketRiskLabel(
 }
 
 function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>): string {
-  const supplierHeaders = comparison.activeSuppliers.flatMap((supplier) => [`${supplier}单价`, `${supplier}数量`, `${supplier}金额`]);
-  const headers = ["产品", "物料名称", "匹配键", "标准品类", ...supplierHeaders, "最低单价", "最高单价", "差异金额", "差异度", "覆盖供应商"];
-  const body = comparison.materialComparisons.map((item) => {
-    const supplierCells = comparison.activeSuppliers.flatMap((supplier) => {
-      const point = item.suppliers.find((entry) => entry.supplierName === supplier);
-      return [point?.unitPrice ?? "", point?.quantity ?? "", point?.amount ?? ""];
+  const supplierHeaders = comparison.activeSuppliers.map((supplier) => `${supplier}报价`);
+  const headers = ["分类", "名称", ...supplierHeaders, "差值", "百分比", "产品", "匹配键", "覆盖供应商"];
+  const body: string[][] = [];
+
+  comparison.categories.forEach((category) => {
+    const categoryItems = comparison.materialComparisons.filter((item) => item.category === category);
+    if (categoryItems.length === 0) return;
+
+    const categoryValues = comparison.activeSuppliers.map((supplier) =>
+      categoryItems.reduce((sum, item) => sum + getSupplierAmount(item, supplier), 0)
+    );
+    const categoryDiff = getPairDiff(categoryValues);
+    body.push([
+      category,
+      "分类合计",
+      ...categoryValues,
+      categoryDiff.diff,
+      Number.isFinite(categoryDiff.rate) ? `${(categoryDiff.rate * 100).toFixed(1)}%` : "",
+      "",
+      "",
+      `${categoryItems.reduce((sum, item) => sum + item.suppliers.length, 0)}/${categoryItems.length * comparison.activeSuppliers.length}`
+    ].map(escapeCsv));
+
+    categoryItems.forEach((item) => {
+      const values = comparison.activeSuppliers.map((supplier) => getSupplierAmount(item, supplier));
+      const diff = getPairDiff(values);
+      body.push([
+        category,
+        item.materialName,
+        ...values.map((value) => (value > 0 ? value : "")),
+        diff.diff,
+        Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
+        item.productName,
+        item.matchKey,
+        `${item.suppliers.length}/${comparison.activeSuppliers.length}`
+      ].map(escapeCsv));
     });
-    return [
-      item.productName,
-      item.materialName,
-      item.matchKey,
-      item.category,
-      ...supplierCells,
-      item.minPrice,
-      item.maxPrice,
-      item.diffAmount,
-      Number.isFinite(item.diffRate) ? `${(item.diffRate * 100).toFixed(1)}%` : "0%",
-      `${item.suppliers.length}/${comparison.activeSuppliers.length}`
-    ].map(escapeCsv);
   });
 
+  body.push(
+    summaryCsvRow("材料成本合计", comparison.totals.materialTotals, comparison.activeSuppliers),
+    summaryCsvRow("人工/管理/利润合计", comparison.totals.derivedOverheadTotals, comparison.activeSuppliers),
+    summaryCsvRow("出厂价", comparison.totals.factoryPriceTotals, comparison.activeSuppliers)
+  );
+
   return `\uFEFF${[headers.map(escapeCsv), ...body].map((line) => line.join(",")).join("\n")}`;
+}
+
+function getSupplierAmount(item: ReturnType<typeof buildCostComparison>["materialComparisons"][number], supplier: string): number {
+  return item.suppliers.find((entry) => entry.supplierName === supplier)?.amount ?? 0;
+}
+
+function getPairDiff(values: number[]): { diff: number | ""; rate: number } {
+  if (values.length < 2 || values[0] <= 0) return { diff: "", rate: Number.NaN };
+  const diff = values[1] - values[0];
+  return { diff, rate: diff / values[0] };
+}
+
+function summaryCsvRow(label: string, totals: Record<string, number>, suppliers: string[]): string[] {
+  const values = suppliers.map((supplier) => totals[supplier] ?? 0);
+  const diff = getPairDiff(values);
+  return [
+    "总计核验",
+    label,
+    ...values.map((value) => (value > 0 ? value : "")),
+    diff.diff,
+    Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
+    "",
+    "",
+    ""
+  ].map(escapeCsv);
 }
 
 function downloadCsv(csv: string, fileName: string) {
