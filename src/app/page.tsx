@@ -5,7 +5,9 @@ import { BomTable } from "@/components/BomTable";
 import { CostDashboard } from "@/components/CostDashboard";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
+import { parseBomFileInBrowser } from "@/lib/bom/browser-parser";
 import { buildCostComparison, CostFilters } from "@/lib/bom/cost-comparison";
+import { getMaterialPriceComparisons } from "@/lib/bom/material-price";
 import { parseMaterialPriceFile } from "@/lib/bom/price-table-client";
 import {
   BomFileKind,
@@ -15,6 +17,8 @@ import {
   MaterialPriceQuoteResponse,
   UploadBomResponse
 } from "@/types/bom";
+
+const LOCAL_RECORDS_KEY = "ai-cost-audit:bom-records";
 
 type DetailSelection = {
   title: string;
@@ -69,13 +73,12 @@ export default function Home() {
   const selectedSupplierLabel =
     filters.supplierNames.length === 0 ? "全部供应商" : filters.supplierNames.join(" / ");
 
-  const refresh = useCallback(async () => {
-    const recordsResponse = await fetch("/api/bom/records");
-    setRecords(await recordsResponse.json());
+  const refresh = useCallback(() => {
+    setRecords(loadLocalRecords());
   }, []);
 
   useEffect(() => {
-    void refresh();
+    refresh();
   }, [refresh]);
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
@@ -90,46 +93,31 @@ export default function Home() {
     setUploadErrors([]);
     setDetailSelection(null);
 
-    const formData = new FormData();
-    formData.set("productName", productName);
-    formData.set("supplierName", supplierName);
-    formData.set("kind", kind);
-    files.forEach((file) => formData.append("files", file));
-
-    const response = await fetch("/api/bom/upload", {
-      method: "POST",
-      body: formData
-    });
-    const result = (await response.json()) as UploadBomResponse | { message?: string };
-
-    if (!response.ok && "message" in result) {
-      setMessage(result.message ?? "上传失败，请检查文件格式。");
-      setIsUploading(false);
-      return;
-    }
-
-    if ("records" in result) {
-      const quoteObjectCount = new Set(result.records.flatMap((record) => record.rows.map((row) => row.supplierName))).size;
-      setUploadErrors(result.errors);
-      setMessage(
-        result.records.length > 0
-          ? `成功解析 ${result.records.length} 个文件 / ${quoteObjectCount} 个报价对象，合计 ${result.records.reduce((sum, record) => sum + record.rowCount, 0)} 行。`
-          : "没有文件解析成功，请检查表头和文件格式。"
-      );
-      if (result.records.length > 0) setActiveView("compare");
+    const result = await parseSelectedFiles(files, { productName, supplierName, kind });
+    const quoteObjectCount = new Set(result.records.flatMap((record) => record.rows.map((row) => row.supplierName))).size;
+    setUploadErrors(result.errors);
+    setMessage(
+      result.records.length > 0
+        ? `成功解析 ${result.records.length} 个文件 / ${quoteObjectCount} 个报价对象，合计 ${result.records.reduce((sum, record) => sum + record.rowCount, 0)} 行。`
+        : "没有文件解析成功，请检查表头和文件格式。"
+    );
+    if (result.records.length > 0) {
+      const nextRecords = [...result.records, ...loadLocalRecords()];
+      saveLocalRecords(nextRecords);
+      setRecords(nextRecords);
+      setActiveView("compare");
     }
 
     setFiles([]);
-    await refresh();
     setIsUploading(false);
   }
 
-  async function handleClear() {
-    await fetch("/api/bom/records", { method: "DELETE" });
+  function handleClear() {
+    saveLocalRecords([]);
+    setRecords([]);
     setMessage("已清空本地解析结果。");
     setUploadErrors([]);
     setDetailSelection(null);
-    await refresh();
   }
 
   function updateFilter(key: "productName" | "category" | "materialQuery", value: string) {
@@ -166,34 +154,24 @@ export default function Home() {
     setIsRefreshingMarketPrices(true);
     setMarketPriceError("");
     try {
-      const response = await fetch("/api/material-prices/quote", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          providerUrl: materialPriceProviderUrl,
-          prices: uploadedMarketPrices,
-          rows: comparison.filteredRows.map((row) => ({
-            id: row.id,
-            materialName: row.materialName,
-            normalizedName: row.normalizedName,
-            category: row.category,
-            spec: row.spec,
-            unit: row.unit,
-            unitPrice: row.unitPrice,
-            supplierName: row.supplierName,
-            currency: row.currency
-          }))
-        })
-      });
-      const result = (await response.json()) as MaterialPriceQuoteResponse | { message?: string };
-      if (!response.ok) {
-        setMarketPriceError("message" in result ? result.message ?? "材料价格接口调用失败。" : "材料价格接口调用失败。");
-        return;
-      }
-      setMarketPriceResult(result as MaterialPriceQuoteResponse);
+      const result = await getMaterialPriceComparisons(
+        comparison.filteredRows.map((row) => ({
+          id: row.id,
+          materialName: row.materialName,
+          normalizedName: row.normalizedName,
+          category: row.category,
+          spec: row.spec,
+          unit: row.unit,
+          unitPrice: row.unitPrice,
+          supplierName: row.supplierName,
+          currency: row.currency
+        })),
+        { providerUrl: materialPriceProviderUrl, prices: uploadedMarketPrices }
+      );
+      setMarketPriceResult(result);
       setPriceSourceMessage("");
     } catch {
-      setMarketPriceError("无法连接材料价格接口，请检查本地服务或外部价格源配置。");
+      setMarketPriceError("无法连接材料价格接口，请检查外部价格源配置或改用上传价格表。");
     } finally {
       setIsRefreshingMarketPrices(false);
     }
@@ -436,6 +414,63 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+async function parseSelectedFiles(
+  files: File[],
+  meta: { productName: string; supplierName: string; kind: BomFileKind }
+): Promise<UploadBomResponse> {
+  const response: UploadBomResponse = { records: [], errors: [] };
+  for (const file of files) {
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!extension || !["xlsx", "xls", "csv"].includes(extension)) {
+      response.errors.push({ fileName: file.name, message: "仅支持 .xlsx、.xls、.csv 文件。" });
+      continue;
+    }
+
+    try {
+      const fileId = crypto.randomUUID();
+      const record = await parseBomFileInBrowser({
+        fileId,
+        fileName: file.name,
+        productName: meta.productName || inferNameFromFile(file.name) || "未命名产品",
+        supplierName: meta.supplierName || inferNameFromFile(file.name) || "未命名供应商",
+        kind: meta.kind,
+        data: await file.arrayBuffer(),
+        extension
+      });
+      response.records.push(record);
+    } catch (error) {
+      response.errors.push({
+        fileName: file.name,
+        message: error instanceof Error ? error.message : "文件解析失败。"
+      });
+    }
+  }
+  return response;
+}
+
+function loadLocalRecords(): BomFileRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(LOCAL_RECORDS_KEY);
+    return raw ? (JSON.parse(raw) as BomFileRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalRecords(records: BomFileRecord[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LOCAL_RECORDS_KEY, JSON.stringify(records));
+}
+
+function inferNameFromFile(fileName: string): string {
+  return fileName
+    .replace(/\.(xlsx|xls|csv)$/i, "")
+    .replace(/bom|报价|报价格|清单|物料清单/gi, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
 }
 
 function UploadView({

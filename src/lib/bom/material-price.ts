@@ -47,7 +47,8 @@ const KEYWORD_PRICE_RULES: Array<{ pattern: RegExp; price: number; unit?: string
 ];
 
 export async function getMaterialPriceComparisons(rows: QuoteRow[], provider: PriceProviderInput = {}): Promise<MaterialPriceQuoteResponse> {
-  const externalUrl = provider.providerUrl?.trim() || process.env.MATERIAL_PRICE_PROVIDER_URL;
+  const envProviderUrl = typeof process !== "undefined" ? process.env.MATERIAL_PRICE_PROVIDER_URL : undefined;
+  const externalUrl = provider.providerUrl?.trim() || envProviderUrl;
   const generatedAt = new Date().toISOString();
 
   if (provider.prices && provider.prices.length > 0) {

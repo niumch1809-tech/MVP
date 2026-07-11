@@ -2,6 +2,7 @@
 node_modules
 .npm-cache
 dist
+out
 coverage
 .env*.local
 *.tsbuildinfo
