@@ -2,6 +2,7 @@ import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 
 await rm("dist", { recursive: true, force: true });
 await cp("out", "dist", { recursive: true });
+await cp("out", "dist/client", { recursive: true });
 await mkdir("dist/server", { recursive: true });
 await mkdir("dist/.openai", { recursive: true });
 await cp(".openai/hosting.json", "dist/.openai/hosting.json");
