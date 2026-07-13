@@ -25,18 +25,6 @@ export const STANDARD_CATEGORIES = [
   "其他"
 ] as const;
 
-const CATEGORY_MATCH_KEY_ONLY = new Set([
-  "吊钟组",
-  "吊杆组",
-  "端子排/端子座",
-  "电线/线组",
-  "包装袋",
-  "五金包",
-  "说明书",
-  "灯盘组",
-  "叶片组"
-]);
-
 export type CostFilters = {
   supplierNames: string[];
   productName: string;
@@ -236,15 +224,7 @@ function buildMaterialMatchKey(row: CanonicalBomRow): string {
   if (row.manualMatchKey) {
     return row.manualMatchKey;
   }
-  const category = getEffectiveCategory(row);
-  const base = row.normalizedName || row.materialName.trim();
-  if (CATEGORY_MATCH_KEY_ONLY.has(category)) {
-    return `${category}::同类部件`;
-  }
-  if (category !== "其他" && /^[\p{Script=Han}a-z0-9/]+$/iu.test(base)) {
-    return `${category}::${base}`;
-  }
-  return base;
+  return buildMaterialIdentity(row);
 }
 
 function buildDisplayMaterialName(rows: CanonicalBomRow[]): string {
@@ -258,6 +238,25 @@ function buildDisplayMaterialName(rows: CanonicalBomRow[]): string {
     return `${normalized}（${originals.slice(0, 3).join(" / ")}${originals.length > 3 ? "..." : ""}）`;
   }
   return normalized || originals[0] || "未命名物料";
+}
+
+function buildMaterialIdentity(row: CanonicalBomRow): string {
+  const manual = normalizeLooseMaterialText(row.manualName || "");
+  const normalized = stripSpecFingerprint(row.normalizedName || "");
+  const fallback = normalizeLooseMaterialText(row.materialName);
+  return manual || normalized || fallback || row.materialName.trim();
+}
+
+function stripSpecFingerprint(value: string): string {
+  return value.split("|")[0]?.trim() ?? "";
+}
+
+function normalizeLooseMaterialText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{Script=Han}a-z0-9/]+/giu, "")
+    .slice(0, 64);
 }
 
 function buildCategories(rows: CanonicalBomRow[]): string[] {
