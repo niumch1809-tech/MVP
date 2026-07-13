@@ -37,6 +37,9 @@ export type CanonicalBomRow = {
   normalizedName: string;
   spec: string;
   category: string;
+  manualCategory?: string;
+  manualMatchKey?: string;
+  manualName?: string;
   unit: string;
   quantity: number;
   unitPrice: number;

@@ -4,6 +4,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { BomTable } from "@/components/BomTable";
 import { CostDashboard } from "@/components/CostDashboard";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
+import { ManualAdjustmentBoard } from "@/components/ManualAdjustmentBoard";
+import type { ManualGroup } from "@/components/ManualAdjustmentBoard";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
 import { parseBomFileInBrowser } from "@/lib/bom/browser-parser";
 import { buildCostComparison, CostFilters } from "@/lib/bom/cost-comparison";
@@ -19,23 +21,28 @@ import {
 } from "@/types/bom";
 
 const LOCAL_RECORDS_KEY = "ai-cost-audit:bom-records";
+const LOCAL_MANUAL_CATEGORIES_KEY = "ai-cost-audit:manual-categories";
+const LOCAL_MANUAL_GROUPS_KEY = "ai-cost-audit:manual-groups";
 
 type DetailSelection = {
   title: string;
   rows: CanonicalBomRow[];
 };
 
-type WorkspaceView = "upload" | "compare" | "details" | "output";
+type WorkspaceView = "upload" | "adjust" | "compare" | "details" | "output";
 
 const NAV_ITEMS: Array<{ id: WorkspaceView; label: string; eyebrow: string }> = [
   { id: "upload", label: "数据上传", eyebrow: "01" },
-  { id: "compare", label: "报价对比图", eyebrow: "02" },
-  { id: "details", label: "数据表与预警", eyebrow: "03" },
-  { id: "output", label: "数据输出", eyebrow: "04" }
+  { id: "adjust", label: "手工校准", eyebrow: "02" },
+  { id: "compare", label: "报价对比图", eyebrow: "03" },
+  { id: "details", label: "数据表与预警", eyebrow: "04" },
+  { id: "output", label: "数据输出", eyebrow: "05" }
 ];
 
 export default function Home() {
   const [records, setRecords] = useState<BomFileRecord[]>([]);
+  const [manualCategories, setManualCategories] = useState<string[]>([]);
+  const [manualGroups, setManualGroups] = useState<ManualGroup[]>([]);
   const [productName, setProductName] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [kind, setKind] = useState<BomFileKind>("supplier_quote");
@@ -60,6 +67,7 @@ export default function Home() {
   const [detailSelection, setDetailSelection] = useState<DetailSelection | null>(null);
 
   const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
+  const quoteRows = useMemo(() => rows.filter((row) => row.kind === "supplier_quote"), [rows]);
   const comparison = useMemo(() => buildCostComparison(rows, filters), [rows, filters]);
   const issueCount = useMemo(
     () => comparison.filteredRows.reduce((sum, row) => sum + row.dataIssues.length, 0),
@@ -75,6 +83,8 @@ export default function Home() {
 
   const refresh = useCallback(() => {
     setRecords(loadLocalRecords());
+    setManualCategories(loadLocalArray<string>(LOCAL_MANUAL_CATEGORIES_KEY));
+    setManualGroups(loadLocalArray<ManualGroup>(LOCAL_MANUAL_GROUPS_KEY));
   }, []);
 
   useEffect(() => {
@@ -105,7 +115,7 @@ export default function Home() {
       const nextRecords = [...result.records, ...loadLocalRecords()];
       saveLocalRecords(nextRecords);
       setRecords(nextRecords);
-      setActiveView("compare");
+      setActiveView("adjust");
     }
 
     setFiles([]);
@@ -118,6 +128,41 @@ export default function Home() {
     setMessage("已清空本地解析结果。");
     setUploadErrors([]);
     setDetailSelection(null);
+  }
+
+  function updateRows(rowIds: string[], patch: Partial<CanonicalBomRow>) {
+    if (rowIds.length === 0) return;
+    const idSet = new Set(rowIds);
+    const nextRecords = records.map((record) => ({
+      ...record,
+      rows: record.rows.map((row) => (idSet.has(row.id) ? { ...row, ...patch } : row))
+    }));
+    saveLocalRecords(nextRecords);
+    setRecords(nextRecords);
+    setDetailSelection(null);
+  }
+
+  function createManualCategory(category: string) {
+    const next = Array.from(new Set([...manualCategories, category.trim()].filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-CN"));
+    saveLocalArray(LOCAL_MANUAL_CATEGORIES_KEY, next);
+    setManualCategories(next);
+  }
+
+  function createManualGroup(group: ManualGroup) {
+    const next = [...manualGroups.filter((item) => item.id !== group.id), group];
+    saveLocalArray(LOCAL_MANUAL_GROUPS_KEY, next);
+    setManualGroups(next);
+    createManualCategory(group.category);
+  }
+
+  function deleteManualGroup(groupId: string) {
+    const nextGroups = manualGroups.filter((group) => group.id !== groupId);
+    saveLocalArray(LOCAL_MANUAL_GROUPS_KEY, nextGroups);
+    setManualGroups(nextGroups);
+    updateRows(
+      rows.filter((row) => row.manualMatchKey === groupId).map((row) => row.id),
+      { manualMatchKey: "", manualName: "" }
+    );
   }
 
   function updateFilter(key: "productName" | "category" | "materialQuery", value: string) {
@@ -212,9 +257,9 @@ export default function Home() {
     <main className="min-h-screen overflow-x-hidden bg-transparent">
       <div className="mx-auto grid w-full max-w-[1560px] gap-5 px-4 py-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="reveal-in lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
-          <div className="flex h-full flex-col rounded-[28px] bg-white/86 p-3 shadow-[0_26px_80px_rgba(15,23,42,0.10)] ring-1 ring-white/80">
+          <div className="flex h-full flex-col rounded-[22px] bg-white/86 p-3 shadow-[0_26px_80px_rgba(15,23,42,0.10)] ring-1 ring-white/80">
             <div className="rounded-[22px] bg-slate-950 p-5 text-white">
-              <div className="mb-8 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80">
+              <div className="mb-8 inline-flex rounded-[22px] bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80">
                 MVP 半自动
               </div>
               <h1 className="text-2xl font-semibold leading-tight tracking-normal">AI 成本核验平台</h1>
@@ -229,7 +274,7 @@ export default function Home() {
                     key={item.id}
                     type="button"
                     onClick={() => setActiveView(item.id)}
-                    className={`group flex items-center justify-between rounded-[18px] px-4 py-3 text-left transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.99] ${
+                    className={`group flex items-center justify-between rounded-[22px] px-4 py-3 text-left transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.99] ${
                       active ? "bg-slate-950 text-white shadow-[0_16px_34px_rgba(15,23,42,0.18)]" : "text-slate-600 hover:bg-slate-100"
                     }`}
                   >
@@ -237,7 +282,7 @@ export default function Home() {
                       <span className={`text-[11px] font-semibold ${active ? "text-white/50" : "text-slate-400"}`}>{item.eyebrow}</span>
                       <span className="text-sm font-semibold">{item.label}</span>
                     </span>
-                    <span className={`h-2 w-2 rounded-full ${active ? "bg-white" : "bg-slate-300 group-hover:bg-slate-500"}`} />
+                    <span className={`h-2 w-2 rounded-[22px] ${active ? "bg-white" : "bg-slate-300 group-hover:bg-slate-500"}`} />
                   </button>
                 );
               })}
@@ -253,21 +298,21 @@ export default function Home() {
         </aside>
 
         <section className="grid min-w-0 gap-5">
-          <header className="reveal-in app-surface overflow-hidden rounded-[28px] p-5">
+          <header className="reveal-in app-surface overflow-hidden rounded-[22px] p-5">
             <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-end">
               <div>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-accent">
-                    <span className="status-pulse mr-2 inline-block h-2 w-2 rounded-full bg-accent text-accent" />
+                  <span className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-accent">
+                    <span className="status-pulse mr-2 inline-block h-2 w-2 rounded-[22px] bg-accent text-accent" />
                     本地运行中
                   </span>
-                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
+                  <span className="rounded-[22px] border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
                     {selectedSupplierLabel}
                   </span>
-                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
+                  <span className="rounded-[22px] border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
                     {filters.productName || "全部产品"}
                   </span>
-                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
+                  <span className="rounded-[22px] border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
                     {filters.category || "全部品类"}
                   </span>
                 </div>
@@ -319,6 +364,28 @@ export default function Home() {
                   setDetailSelection({ rows: selectedRows, title });
                   setActiveView("details");
                 }}
+              />
+            </>
+          )}
+
+          {activeView === "adjust" && (
+            <>
+              <FilterPanel
+                comparison={comparison}
+                filters={filters}
+                onReset={resetFilters}
+                onSelectAllSuppliers={selectAllSuppliers}
+                onSupplierChecked={setSupplierChecked}
+                onUpdateFilter={updateFilter}
+              />
+              <ManualAdjustmentBoard
+                rows={quoteRows}
+                categories={[...comparison.categories, ...manualCategories]}
+                groups={manualGroups}
+                onCreateCategory={createManualCategory}
+                onCreateGroup={createManualGroup}
+                onDeleteGroup={deleteManualGroup}
+                onUpdateRows={updateRows}
               />
             </>
           )}
@@ -463,6 +530,21 @@ function loadLocalRecords(): BomFileRecord[] {
 function saveLocalRecords(records: BomFileRecord[]) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(LOCAL_RECORDS_KEY, JSON.stringify(records));
+}
+
+function loadLocalArray<T>(key: string): T[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalArray<T>(key: string, value: T[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, JSON.stringify(value));
 }
 
 function inferNameFromFile(fileName: string): string {
@@ -625,7 +707,7 @@ function FilterPanel({
   onUpdateFilter: (key: "productName" | "category" | "materialQuery", value: string) => void;
 }) {
   return (
-    <section className="app-surface reveal-in rounded-[28px] p-4">
+    <section className="app-surface reveal-in rounded-[22px] p-4">
       <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_2fr_auto]">
         <div className="block">
           <div className="flex items-center justify-between gap-3">
@@ -634,7 +716,7 @@ function FilterPanel({
               全部
             </button>
           </div>
-          <div className="mt-2 flex min-h-11 flex-wrap items-center gap-2 rounded-[16px] bg-slate-50 p-1.5 ring-1 ring-slate-200">
+          <div className="mt-2 flex min-h-11 flex-wrap items-center gap-2 rounded-[22px] bg-slate-50 p-1.5 ring-1 ring-slate-200">
             {comparison.suppliers.map((supplier) => {
               const checked = filters.supplierNames.length === 0 || filters.supplierNames.includes(supplier);
               return (
@@ -645,8 +727,8 @@ function FilterPanel({
                     onChange={(event) => onSupplierChecked(supplier, event.target.checked)}
                     className="peer sr-only"
                   />
-                  <span className="motion-lift inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 font-semibold ring-1 ring-slate-200 peer-checked:bg-slate-950 peer-checked:text-white peer-checked:ring-slate-950">
-                    <span className={`h-1.5 w-1.5 rounded-full ${checked ? "bg-white" : "bg-slate-300"}`} />
+                  <span className="motion-lift inline-flex items-center gap-2 rounded-[22px] bg-white px-3 py-2 font-semibold ring-1 ring-slate-200 peer-checked:bg-slate-950 peer-checked:text-white peer-checked:ring-slate-950">
+                    <span className={`h-1.5 w-1.5 rounded-[22px] ${checked ? "bg-white" : "bg-slate-300"}`} />
                     {supplier}
                   </span>
                 </label>
@@ -661,7 +743,7 @@ function FilterPanel({
           <select
             value={filters.productName}
             onChange={(event) => onUpdateFilter("productName", event.target.value)}
-            className="mt-2 h-11 w-full rounded-[16px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            className="mt-2 h-11 w-full rounded-[22px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
           >
             <option value="">全部产品</option>
             {comparison.products.map((product) => (
@@ -677,7 +759,7 @@ function FilterPanel({
           <select
             value={filters.category}
             onChange={(event) => onUpdateFilter("category", event.target.value)}
-            className="mt-2 h-11 w-full rounded-[16px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            className="mt-2 h-11 w-full rounded-[22px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
           >
             <option value="">全部品类</option>
             {comparison.categories.map((category) => (
@@ -693,7 +775,7 @@ function FilterPanel({
           <input
             value={filters.materialQuery}
             onChange={(event) => onUpdateFilter("materialQuery", event.target.value)}
-            className="mt-2 h-11 w-full rounded-[16px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            className="mt-2 h-11 w-full rounded-[22px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
             placeholder="物料名称、标准名或规格"
           />
         </label>
@@ -701,7 +783,7 @@ function FilterPanel({
         <button
           type="button"
           onClick={onReset}
-          className="motion-lift mt-6 h-11 rounded-full border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 active:scale-[0.98]"
+          className="motion-lift mt-6 h-11 rounded-[22px] border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 active:scale-[0.98]"
         >
           重置
         </button>
