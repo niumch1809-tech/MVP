@@ -6,6 +6,7 @@ import { CostComparison, MaterialComparisonItem } from "@/lib/bom/cost-compariso
 
 type Props = {
   comparison: CostComparison;
+  outputNameSupplier?: string;
   onInspectRows: (rows: CanonicalBomRow[], title: string) => void;
 };
 
@@ -31,6 +32,7 @@ type DisplayRow =
       category: string;
       name: string;
       matchKey: string;
+      supplierMaterialNames: Record<string, string>;
       productName: string;
       amounts: Record<string, number>;
       diffAmount: number;
@@ -40,12 +42,15 @@ type DisplayRow =
       rows: CanonicalBomRow[];
     };
 
-export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
+export function IntegratedCostTable({ comparison, outputNameSupplier = "", onInspectRows }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("category");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const suppliers = comparison.activeSuppliers;
 
-  const rows = useMemo(() => buildDisplayRows(comparison, sortKey, sortDirection), [comparison, sortDirection, sortKey]);
+  const rows = useMemo(
+    () => buildDisplayRows(comparison, sortKey, sortDirection, outputNameSupplier),
+    [comparison, outputNameSupplier, sortDirection, sortKey]
+  );
 
   function toggleSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -114,7 +119,7 @@ export function IntegratedCostTable({ comparison, onInspectRows }: Props) {
                   {item.coverage}/{item.totalSlots}
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
-                  {item.kind === "item" ? `${item.productName} / ${item.matchKey}` : `${item.rows.length} 行来源`}
+                  {item.kind === "item" ? `${item.productName || "未指定产品"} / ${item.rows.length} 行来源` : `${item.rows.length} 行来源`}
                 </td>
               </tr>
             ))}
@@ -174,7 +179,7 @@ function buildSummaryRows(comparison: CostComparison) {
   });
 }
 
-function buildDisplayRows(comparison: CostComparison, sortKey: SortKey, sortDirection: SortDirection): DisplayRow[] {
+function buildDisplayRows(comparison: CostComparison, sortKey: SortKey, sortDirection: SortDirection, outputNameSupplier: string): DisplayRow[] {
   const direction = sortDirection === "asc" ? 1 : -1;
   const rows: DisplayRow[] = [];
 
@@ -211,8 +216,9 @@ function buildDisplayRows(comparison: CostComparison, sortKey: SortKey, sortDire
         kind: "item",
         id: item.id,
         category: item.category,
-        name: item.materialName,
+        name: getOutputMaterialName(item, comparison.activeSuppliers, outputNameSupplier),
         matchKey: item.matchKey,
+        supplierMaterialNames: item.supplierMaterialNames,
         productName: item.productName,
         amounts,
         diffAmount: itemPair.diffAmount,
@@ -266,6 +272,15 @@ function compareItem(a: MaterialComparisonItem, b: MaterialComparisonItem, key: 
 
 function getSupplierAmount(item: MaterialComparisonItem, supplier: string): number {
   return item.suppliers.find((entry) => entry.supplierName === supplier)?.amount ?? 0;
+}
+
+function getOutputMaterialName(item: MaterialComparisonItem, suppliers: string[], preferredSupplier: string): string {
+  const orderedSuppliers = preferredSupplier
+    ? [preferredSupplier, ...suppliers.filter((supplier) => supplier !== preferredSupplier)]
+    : suppliers;
+  const name = orderedSuppliers.map((supplier) => item.supplierMaterialNames[supplier]?.trim()).find(Boolean);
+  if (name) return name;
+  return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
 }
 
 function getPairDiff(values: number[]): { diffAmount: number; diffRate: number } {

@@ -17,25 +17,33 @@ type MergeRange = {
 const SUMMARY_LABELS = ["材料成本合计", "人工/管理/利润合计", "核验总成本/出厂价"];
 const STYLE = {
   default: 0,
-  yellowText: 1,
-  redText: 2,
-  money: 3,
-  percent: 4,
-  yellowMoney: 5,
-  redMoney: 6,
-  yellowPercent: 7,
-  redPercent: 8
+  title: 1,
+  header: 2,
+  category: 3,
+  material: 4,
+  money: 5,
+  percent: 6,
+  yellowMoney: 7,
+  redMoney: 8,
+  yellowPercent: 9,
+  redPercent: 10,
+  yellowText: 11,
+  redText: 12,
+  summaryLabel: 13,
+  summaryMoney: 14,
+  summaryText: 15,
+  summaryYellowText: 16,
+  summaryRedText: 17
 } as const;
 
-export function buildTemplateOutputArray(comparison: CostComparison): ArrayBuffer {
+export function buildTemplateOutputArray(comparison: CostComparison, outputNameSupplier = ""): ArrayBuffer {
   const suppliers = comparison.activeSuppliers.slice(0, 2);
   const supplierA = suppliers[0] || "供应商1";
   const supplierB = suppliers[1] || "供应商2";
   const rows: SheetCell[][] = [
-    [cell(buildTitle(comparison, supplierA, supplierB)), empty(), empty(), empty(), empty(), empty(), empty(), empty(), empty()],
-    ["品类", "物料", supplierA, supplierB, "差价", "差价%", supplierA, supplierB, "品类差异 金额/%"].map((value) => cell(value))
+    ["品类", "物料", supplierA, supplierB, "差价", "差价%", supplierA, supplierB, "品类差异 金额/%"].map((value) => cell(value, STYLE.header))
   ];
-  const merges: MergeRange[] = [merge(1, 1, 1, 9)];
+  const merges: MergeRange[] = [];
 
   comparison.categories.forEach((category) => {
     const items = comparison.materialComparisons.filter((item) => item.category === category);
@@ -60,8 +68,8 @@ export function buildTemplateOutputArray(comparison: CostComparison): ArrayBuffe
       const percentRiskStyle = getPercentRiskStyle(diff);
 
       rows.push([
-        cell(index === 0 ? category : ""),
-        cell(item.materialName),
+        index === 0 ? cell(category, STYLE.category) : empty(STYLE.category),
+        cell(getOutputMaterialName(item, suppliers, outputNameSupplier), STYLE.material),
         hasAmountA ? cell(amountA, STYLE.money) : empty(),
         hasAmountB ? cell(amountB, STYLE.money) : empty(),
         canCompareMaterial ? cell(diff, amountRiskStyle) : empty(),
@@ -85,25 +93,20 @@ export function buildTemplateOutputArray(comparison: CostComparison): ArrayBuffe
     const rowNumber = rows.length + 1;
     const diff = summary.amountB - summary.amountA;
     rows.push([
-      cell(summary.label),
-      empty(),
-      empty(),
-      empty(),
-      empty(),
-      empty(),
-      summary.amountA > 0 ? cell(summary.amountA, STYLE.money) : empty(),
-      summary.amountB > 0 ? cell(summary.amountB, STYLE.money) : empty(),
-      cell(formatDiffWithRate(diff, summary.diffRate), getTextRiskStyle(diff))
+      cell(summary.label, STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      summary.amountA > 0 ? cell(summary.amountA, STYLE.summaryMoney) : empty(STYLE.summaryMoney),
+      summary.amountB > 0 ? cell(summary.amountB, STYLE.summaryMoney) : empty(STYLE.summaryMoney),
+      cell(formatDiffWithRate(diff, summary.diffRate), getSummaryDiffStyle(diff))
     ]);
     merges.push(merge(rowNumber, 1, rowNumber, 6));
   });
 
   return createXlsx(rows, merges);
-}
-
-function buildTitle(comparison: CostComparison, supplierA: string, supplierB: string): string {
-  const product = comparison.products.length === 1 ? comparison.products[0] : "多产品";
-  return `${product} BOM成本核验输出（${supplierA} vs ${supplierB}）`;
 }
 
 function buildSummaryRows(comparison: CostComparison, supplierA: string, supplierB: string) {
@@ -151,6 +154,15 @@ function hasSupplierAmount(item: MaterialComparisonItem, supplier: string): bool
   return item.suppliers.some((point) => point.supplierName === supplier);
 }
 
+function getOutputMaterialName(item: MaterialComparisonItem, suppliers: string[], outputNameSupplier: string): string {
+  const orderedSuppliers = outputNameSupplier
+    ? [outputNameSupplier, ...suppliers.filter((supplier) => supplier !== outputNameSupplier)]
+    : suppliers;
+  const name = orderedSuppliers.map((supplier) => item.supplierMaterialNames[supplier]?.trim()).find(Boolean);
+  if (name) return name;
+  return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
+}
+
 function getRiskLevel(diff: number): "none" | "yellow" | "red" {
   const amount = Math.abs(diff);
   if (amount <= 0.5) return "none";
@@ -179,6 +191,13 @@ function getPercentRiskStyle(diff: number): number {
   return STYLE.percent;
 }
 
+function getSummaryDiffStyle(diff: number): number {
+  const risk = getRiskLevel(diff);
+  if (risk === "yellow") return STYLE.summaryYellowText;
+  if (risk === "red") return STYLE.summaryRedText;
+  return STYLE.summaryText;
+}
+
 function formatDiffWithRate(diff: number, rate: number): string {
   const diffText = Number.isFinite(diff) ? formatMoney(diff) : "-";
   const rateText = Number.isFinite(rate) ? formatPercent(rate) : "-";
@@ -199,8 +218,8 @@ function cell(value: CellValue, style: number = STYLE.default): SheetCell {
   return { value, style };
 }
 
-function empty(): SheetCell {
-  return { value: "" };
+function empty(style: number = STYLE.default): SheetCell {
+  return { value: "", style };
 }
 
 function merge(startRow: number, startCol: number, endRow: number, endCol: number): MergeRange {
@@ -234,7 +253,9 @@ function sheetXml(rows: SheetCell[][], merges: MergeRange[]): string {
           return `<c r="${ref}" t="inlineStr"${style}><is><t>${escapeXml(item.value)}</t></is></c>`;
         })
         .join("");
-      return `<row r="${rowIndex + 1}">${cells}</row>`;
+      const rowNumber = rowIndex + 1;
+      const rowAttrs = rowNumber === 1 ? ` r="${rowNumber}" ht="20" customHeight="1"` : ` r="${rowNumber}"`;
+      return `<row${rowAttrs}>${cells}</row>`;
     })
     .join("");
   const mergeXml = merges.length
@@ -244,11 +265,13 @@ function sheetXml(rows: SheetCell[][], merges: MergeRange[]): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <dimension ref="A1:I${rows.length}"/>
+  <sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <cols>
     <col min="1" max="1" width="16" customWidth="1"/>
-    <col min="2" max="2" width="28" customWidth="1"/>
-    <col min="3" max="8" width="14" customWidth="1"/>
-    <col min="9" max="9" width="20" customWidth="1"/>
+    <col min="2" max="2" width="34" customWidth="1"/>
+    <col min="3" max="6" width="13" customWidth="1"/>
+    <col min="7" max="8" width="16" customWidth="1"/>
+    <col min="9" max="9" width="22" customWidth="1"/>
   </cols>
   <sheetData>${rowXml}</sheetData>
   ${mergeXml}
@@ -262,24 +285,48 @@ function stylesXml(): string {
     <numFmt numFmtId="164" formatCode="#,##0.00"/>
     <numFmt numFmtId="165" formatCode="0.00%"/>
   </numFmts>
-  <fonts count="3">
-    <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
-    <font><sz val="11"/><color rgb="FFD97706"/><name val="Calibri"/><family val="2"/></font>
-    <font><sz val="11"/><color rgb="FFDC2626"/><name val="Calibri"/><family val="2"/></font>
+  <fonts count="4">
+    <font><sz val="10"/><color rgb="FF111827"/><name val="Microsoft YaHei"/><family val="2"/></font>
+    <font><b/><sz val="10"/><color rgb="FF111827"/><name val="Microsoft YaHei"/><family val="2"/></font>
+    <font><b/><sz val="10"/><color rgb="FFD97706"/><name val="Microsoft YaHei"/><family val="2"/></font>
+    <font><b/><sz val="10"/><color rgb="FFDC2626"/><name val="Microsoft YaHei"/><family val="2"/></font>
   </fonts>
-  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
-  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <fills count="4">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE2F0D9"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FF000000"/></left>
+      <right style="thin"><color rgb="FF000000"/></right>
+      <top style="thin"><color rgb="FF000000"/></top>
+      <bottom style="thin"><color rgb="FF000000"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="9">
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
-    <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
-    <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
-    <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
-    <xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
-    <xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
-    <xf numFmtId="165" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
-    <xf numFmtId="165" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+  <cellXfs count="18">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="164" fontId="2" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="164" fontId="3" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="2" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="3" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="1" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
   <dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>

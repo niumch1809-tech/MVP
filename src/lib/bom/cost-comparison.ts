@@ -57,6 +57,7 @@ export type MaterialComparisonItem = {
   productName: string;
   materialName: string;
   matchKey: string;
+  supplierMaterialNames: Record<string, string>;
   category: string;
   minPrice: number;
   maxPrice: number;
@@ -170,14 +171,12 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
   rows
     .filter((row) => row.materialName.trim())
     .forEach((row) => {
-      const materialKey = buildMaterialMatchKey(row);
-      const key = `${row.productName || "未命名产品"}::${materialKey}`;
+      const key = buildMaterialMatchKey(row);
       groups.set(key, [...(groups.get(key) ?? []), row]);
     });
 
   return Array.from(groups.entries())
     .map(([key, materialRows]) => {
-      const productName = materialRows[0].productName || "未命名产品";
       const supplierPoints = suppliers
         .map((supplierName) => {
           const supplierRows = materialRows.filter((row) => row.supplierName === supplierName);
@@ -201,9 +200,10 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
 
       return {
         id: key,
-        productName,
+        productName: buildDisplayProductName(materialRows),
         materialName: buildDisplayMaterialName(materialRows),
         matchKey: buildMaterialMatchKey(materialRows[0]),
+        supplierMaterialNames: buildSupplierMaterialNames(materialRows, suppliers),
         category: getEffectiveCategory(materialRows[0]),
         minPrice,
         maxPrice,
@@ -215,7 +215,6 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
     })
     .sort((a, b) => b.diffAmount - a.diffAmount || b.maxPrice - a.maxPrice);
 }
-
 function isComparableCostRow(row: CanonicalBomRow): boolean {
   return row.amount > 0 && !isSummaryCostItem(row.materialName, row.category) && !isRollupCostRow(row.materialName, row.category);
 }
@@ -238,6 +237,35 @@ function buildDisplayMaterialName(rows: CanonicalBomRow[]): string {
     return `${normalized}（${originals.slice(0, 3).join(" / ")}${originals.length > 3 ? "..." : ""}）`;
   }
   return normalized || originals[0] || "未命名物料";
+}
+
+function buildDisplayProductName(rows: CanonicalBomRow[]): string {
+  const labels = Array.from(
+    new Set(
+      rows
+        .map((row) => [row.productName, row.productModel, row.productColor].filter(Boolean).join(" / ").trim())
+        .filter(Boolean)
+    )
+  );
+  if (labels.length === 0) return "未指定产品";
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, 3).join(" / ")}${labels.length > 3 ? "..." : ""}`;
+}
+
+function buildSupplierMaterialNames(rows: CanonicalBomRow[], suppliers: string[]): Record<string, string> {
+  return Object.fromEntries(
+    suppliers.map((supplier) => {
+      const names = Array.from(
+        new Set(
+          rows
+            .filter((row) => row.supplierName === supplier)
+            .map((row) => row.materialName.trim())
+            .filter(Boolean)
+        )
+      );
+      return [supplier, names.join(" / ")];
+    })
+  );
 }
 
 function buildMaterialIdentity(row: CanonicalBomRow): string {
@@ -305,3 +333,4 @@ function buildCostTotals(rows: CanonicalBomRow[], suppliers: string[]): CostTota
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
+

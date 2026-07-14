@@ -26,8 +26,31 @@ type Props = {
   onInspectRows: (rows: CanonicalBomRow[], title: string) => void;
 };
 
-const SUPPLIER_COLORS = ["#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2"];
-const STRUCTURE_COLORS = ["#111827", "#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2", "#64748b", "#14b8a6"];
+const SUPPLIER_COLORS = ["#2563eb", "#16a34a", "#f97316", "#7c3aed", "#dc2626", "#0891b2", "#4f46e5", "#ca8a04"];
+const CATEGORY_COLORS: Record<string, string> = {
+  "结构件": "#2563eb",
+  "电子料": "#16a34a",
+  "光源": "#f59e0b",
+  "包装": "#8b5cf6",
+  "人工": "#ef4444",
+  "表面处理": "#06b6d4",
+  "模具/治具": "#64748b",
+  "物流/损耗": "#14b8a6",
+  "吊钟组": "#0ea5e9",
+  "吊杆组": "#22c55e",
+  "端子排/端子座": "#eab308",
+  "电线/线组": "#f97316",
+  "包装袋": "#a855f7",
+  "五金包": "#475569",
+  "说明书": "#84cc16",
+  "灯盘组": "#0284c7",
+  "叶片组": "#db2777",
+  "人工/管理/利润": "#dc2626",
+  "材料成本合计": "#111827",
+  "出厂价": "#0f766e",
+  "其他": "#94a3b8"
+};
+const FALLBACK_COLORS = ["#2563eb", "#16a34a", "#f97316", "#8b5cf6", "#ef4444", "#06b6d4", "#64748b", "#14b8a6"];
 const SURFACE_RADIUS = "rounded-[22px]";
 const PANEL_CLASS = `app-surface motion-lift ${SURFACE_RADIUS} min-h-[240px] min-w-[320px] max-w-full resize overflow-auto p-4`;
 const CHART_SHELL_CLASS = `hairline-grid ${SURFACE_RADIUS} border border-slate-200 bg-slate-50/70 p-3`;
@@ -104,7 +127,7 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
                   {supplierTotalRows.map((entry, index) => (
                     <Cell
                       key={String(entry.supplierName ?? index)}
-                      fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
+                      fill={getSupplierColor(String(entry.supplierName ?? ""), index)}
                     />
                   ))}
                   <LabelList dataKey="totalAmountDiffLabel" position="top" className="fill-slate-500 text-[10px] font-semibold" />
@@ -177,7 +200,7 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
                   <Bar
                     key={supplier}
                     dataKey={supplier}
-                    fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
+                    fill={getSupplierColor(supplier, index)}
                     name={supplier}
                     radius={BAR_RADIUS}
                     barSize={GROUPED_BAR_SIZE}
@@ -312,7 +335,7 @@ function SupplierPieCard({
               }}
             >
               {pieRows.map((entry, index) => (
-                <Cell key={entry.name} fill={STRUCTURE_COLORS[index % STRUCTURE_COLORS.length]} />
+                <Cell key={entry.name} fill={selectedCategory ? getStableColor(entry.name, index) : getCategoryColor(entry.name, index)} />
               ))}
             </Pie>
             <Legend layout="horizontal" align="center" verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 11 }} />
@@ -443,7 +466,7 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
               <Bar
                 key={supplier}
                 dataKey={supplier}
-                fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
+                fill={getSupplierColor(supplier, index)}
                 name={supplier}
                 radius={BAR_RADIUS}
                 barSize={GROUPED_BAR_SIZE}
@@ -506,7 +529,7 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
               <Bar
                 key={supplier}
                 dataKey={supplier}
-                fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
+                fill={getSupplierColor(supplier, index)}
                 name={supplier}
                 radius={BAR_RADIUS}
                 barSize={GROUPED_BAR_SIZE}
@@ -771,6 +794,24 @@ function compactChartRows<T extends { name: string; value: number; rows: Canonic
     rows: otherRows.flatMap((item) => item.rows)
   } as T;
   return [...visible, other];
+}
+
+function getSupplierColor(supplier: string, fallbackIndex = 0): string {
+  return getStableColor(supplier, fallbackIndex, SUPPLIER_COLORS);
+}
+
+function getCategoryColor(category: string, fallbackIndex = 0): string {
+  return CATEGORY_COLORS[category] ?? getStableColor(category, fallbackIndex);
+}
+
+function getStableColor(value: string, fallbackIndex = 0, palette = FALLBACK_COLORS): string {
+  const text = value.trim();
+  if (!text) return palette[fallbackIndex % palette.length];
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return palette[hash % palette.length];
 }
 
 function formatMoney(value: number): string {

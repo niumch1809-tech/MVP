@@ -32,6 +32,14 @@ type ParsedSheet = {
   warnings: string[];
 };
 
+type QuoteIdentity = {
+  supplierName: string;
+  productName: string;
+  productModel: string;
+  productColor: string;
+  quoteName: string;
+};
+
 const REQUIRED_FIELDS: Array<keyof BomFieldMapping> = ["materialName", "quantity", "unitPrice"];
 const GENERIC_SHEET_NAMES = new Set(["sheet1", "sheet2", "sheet3", "工作表1", "工作表2", "工作表3", "报价", "bom"]);
 
@@ -137,6 +145,7 @@ function parseWideSupplierRows(input: BrowserParseInput, parsedSheet: ParsedShee
       const rawPrice = row[supplierColumn];
       if (!isUsablePrice(rawPrice)) return;
 
+      const identity = parseQuoteIdentity(String(supplierColumn), supplierColumn, input.productName);
       const amount = toNumber(rawPrice);
       rows.push({
         id: `${input.fileId}-s${parsedSheet.sheetIndex + 1}-${rowIndex + 1}-${supplierColumn}`,
@@ -144,8 +153,11 @@ function parseWideSupplierRows(input: BrowserParseInput, parsedSheet: ParsedShee
         sourceFileName: input.fileName,
         sheetName: parsedSheet.sheetName,
         rowNumber: parsedSheet.headerRowIndex + rowIndex + 2,
-        productName: input.productName,
-        supplierName: hasMultipleSheets ? `${input.supplierName} - ${supplierColumn}` : supplierColumn,
+        productName: identity.productName,
+        productModel: identity.productModel,
+        productColor: identity.productColor,
+        quoteName: identity.quoteName,
+        supplierName: hasMultipleSheets ? `${input.supplierName} - ${identity.supplierName}` : identity.supplierName,
         kind: input.kind,
         partNumber: "",
         materialName,
@@ -244,6 +256,7 @@ function toCanonicalRow(
   const calculatedAmount = quantity * unitPrice;
   const shouldCalculateAmount = !hasValue(amountRaw) && quantity > 0 && unitPrice > 0;
   const amount = shouldCalculateAmount ? calculatedAmount : explicitAmount;
+  const identity = parseQuoteIdentity(input.supplierName || parsedSheet.sheetName, input.supplierName, input.productName);
 
   return {
     id: `${input.fileId}-s${parsedSheet.sheetIndex + 1}-${index + 1}`,
@@ -251,8 +264,11 @@ function toCanonicalRow(
     sourceFileName: input.fileName,
     sheetName: parsedSheet.sheetName,
     rowNumber: parsedSheet.headerRowIndex + index + 2,
-    productName: input.productName,
-    supplierName: input.supplierName,
+    productName: identity.productName,
+    productModel: identity.productModel,
+    productColor: identity.productColor,
+    quoteName: identity.quoteName,
+    supplierName: identity.supplierName,
     kind: input.kind,
     partNumber: getString(row, fields.partNumber),
     materialName,
@@ -353,6 +369,20 @@ function getValue(row: Record<string, unknown>, key?: string): unknown {
 
 function getString(row: Record<string, unknown>, key?: string): string {
   return String(getValue(row, key) ?? "").trim();
+}
+
+function parseQuoteIdentity(rawValue: string, fallbackSupplier: string, fallbackProduct: string): QuoteIdentity {
+  const quoteName = rawValue.trim();
+  const parts = quoteName.split(/\s*[-–—_]\s*/).map((part) => part.trim()).filter(Boolean);
+  const hasStructuredTitle = parts.length >= 3;
+
+  return {
+    supplierName: hasStructuredTitle ? parts[0] : fallbackSupplier,
+    productName: hasStructuredTitle ? parts[1] : fallbackProduct,
+    productModel: hasStructuredTitle ? parts[2] : "",
+    productColor: hasStructuredTitle ? parts.slice(3).join("-") : "",
+    quoteName
+  };
 }
 
 function roundMoney(value: number): number {

@@ -30,6 +30,9 @@ export type CanonicalBomRow = {
   sheetName: string;
   rowNumber: number;
   productName: string;
+  productModel?: string;
+  productColor?: string;
+  quoteName?: string;
   supplierName: string;
   kind: BomFileKind;
   partNumber: string;
