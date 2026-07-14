@@ -171,7 +171,10 @@ function parseWideSupplierRows(input: BrowserParseInput, parsedSheet: ParsedShee
 }
 
 function readWorkbookSheets(workbook: XLSX.WorkBook): ParsedSheet[] {
-  return workbook.SheetNames.map((sheetName, sheetIndex) => readSheet(workbook, sheetName, sheetIndex)).filter(
+  const inputSheetNames = workbook.SheetNames.filter(isTemplateInputSheetName);
+  const sheetNames = inputSheetNames.length > 0 ? inputSheetNames : workbook.SheetNames.filter((sheetName) => !isTemplateOutputSheetName(sheetName));
+
+  return sheetNames.map((sheetName) => readSheet(workbook, sheetName, workbook.SheetNames.indexOf(sheetName))).filter(
     (sheet) => sheet.rows.length > 0 || Object.keys(sheet.fieldMapping).length > 0
   );
 }
@@ -182,16 +185,32 @@ function readSheet(workbook: XLSX.WorkBook, sheetName: string, sheetIndex: numbe
   const headerRowIndex = findHeaderRow(matrix);
   const headers = makeUniqueHeaders(matrix[headerRowIndex] ?? []);
   const fieldMapping = mapHeader(headers);
-  const rows = matrix
+  const rows = fillMergedCategoryValues(matrix
     .slice(headerRowIndex + 1)
     .map((cells) => rowFromCells(headers, cells))
-    .filter((row) => Object.values(row).some(hasValue));
+    .filter((row) => Object.values(row).some(hasValue)), fieldMapping);
 
   const warnings: string[] = [];
   if (headerRowIndex > 0) warnings.push(`自动跳过前 ${headerRowIndex} 行说明/空行，从第 ${headerRowIndex + 1} 行识别表头。`);
   if (Object.keys(fieldMapping).length === 0) warnings.push("未能识别标准 BOM 字段，请检查表头是否在第一张表中。");
 
   return { sheetName, sheetIndex, headerRowIndex, headers, rows, fieldMapping, warnings };
+}
+
+function fillMergedCategoryValues(rows: Array<Record<string, unknown>>, fieldMapping: BomFieldMapping): Array<Record<string, unknown>> {
+  const categoryKey = fieldMapping.category;
+  if (!categoryKey) return rows;
+
+  let currentCategory = "";
+  return rows.map((row) => {
+    const category = String(row[categoryKey] ?? "").trim();
+    if (category) {
+      currentCategory = category;
+      return row;
+    }
+    if (!currentCategory) return row;
+    return { ...row, [categoryKey]: currentCategory };
+  });
 }
 
 function toCanonicalRow(
@@ -209,9 +228,14 @@ function toCanonicalRow(
   const rawRemark = getString(row, fields.remark);
   const descriptor = parseMaterialDescriptor(rawMaterialName, rawSpec);
   const rawCategory = getString(row, fields.category);
+  const isTemplateSummaryRow = !descriptor.materialName && isTemplateSummaryLabel(rawCategory);
+  const materialName = descriptor.materialName || (isTemplateSummaryRow ? rawCategory : "");
+  const summaryAmountRaw = isTemplateSummaryRow && !hasValue(amountRaw) && !hasValue(quantityRaw) && hasValue(unitPriceRaw)
+    ? unitPriceRaw
+    : amountRaw;
   const inferredQuantity = inferQuantityFromText(rawMaterialName, rawSpec, rawRemark, quantityRaw);
-  const explicitAmount = toNumber(amountRaw);
-  const isSummaryRow = isSummaryCostItem(descriptor.materialName, rawCategory);
+  const explicitAmount = toNumber(summaryAmountRaw);
+  const isSummaryRow = isSummaryCostItem(materialName, rawCategory);
   const quantity = toNumber(quantityRaw) || inferredQuantity.quantity || (isSummaryRow && explicitAmount > 0 ? 1 : 0);
   const unitPrice =
     toNumber(unitPriceRaw) ||
@@ -231,8 +255,8 @@ function toCanonicalRow(
     supplierName: input.supplierName,
     kind: input.kind,
     partNumber: getString(row, fields.partNumber),
-    materialName: descriptor.materialName,
-    normalizedName: descriptor.normalizedName || normalizeMaterialName(descriptor.materialName),
+    materialName,
+    normalizedName: descriptor.normalizedName || normalizeMaterialName(materialName),
     spec: descriptor.spec,
     category: rawCategory,
     unit: normalizeUnit(getString(row, fields.unit)) || inferredQuantity.unit,
@@ -243,7 +267,7 @@ function toCanonicalRow(
     currency: getString(row, fields.currency) || "CNY",
     remark: getString(row, fields.remark),
     isAmountCalculated: shouldCalculateAmount,
-    dataIssues: buildDataIssues({ materialName: descriptor.materialName, quantity, unitPrice, explicitAmount, calculatedAmount, hasExplicitAmount: hasValue(amountRaw) }),
+    dataIssues: buildDataIssues({ materialName, quantity, unitPrice, explicitAmount, calculatedAmount, hasExplicitAmount: hasValue(summaryAmountRaw) }),
     originalFields: row,
     raw: row
   };
@@ -309,6 +333,18 @@ function rowFromCells(headers: string[], cells: unknown[]): Record<string, unkno
 function isUsablePrice(value: unknown): boolean {
   const text = String(value ?? "").trim();
   return text !== "" && text !== "/" && text !== "-" && text.toLowerCase() !== "n/a";
+}
+
+function isTemplateInputSheetName(sheetName: string): boolean {
+  return sheetName.trim() === "输入";
+}
+
+function isTemplateOutputSheetName(sheetName: string): boolean {
+  return sheetName.trim() === "输出";
+}
+
+function isTemplateSummaryLabel(value: string): boolean {
+  return /材料成本合计|人工.*管理.*利润|核验总成本|出厂价/.test(value);
 }
 
 function getValue(row: Record<string, unknown>, key?: string): unknown {

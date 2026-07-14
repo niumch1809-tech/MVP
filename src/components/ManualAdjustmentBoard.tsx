@@ -14,10 +14,8 @@ type ManualGroup = {
 type Props = {
   rows: CanonicalBomRow[];
   categories: string[];
-  groups: ManualGroup[];
   onCreateCategory: (category: string) => void;
-  onCreateGroup: (group: ManualGroup) => void;
-  onDeleteGroup: (groupId: string) => void;
+  onDeleteCategory: (category: string) => void;
   onUpdateRows: (rowIds: string[], patch: Partial<CanonicalBomRow>) => void;
 };
 
@@ -26,29 +24,32 @@ type EditableField = "materialName" | "category" | "quantity" | "unitPrice" | "a
 export function ManualAdjustmentBoard({
   rows,
   categories,
-  groups,
   onCreateCategory,
-  onCreateGroup,
-  onDeleteGroup,
+  onDeleteCategory,
   onUpdateRows
 }: Props) {
   const [query, setQuery] = useState("");
   const [supplier, setSupplier] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [categorySort, setCategorySort] = useState<"count" | "name">("count");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
-  const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupCategory, setNewGroupCategory] = useState("");
 
   const suppliers = useMemo(() => unique(rows.map((row) => row.supplierName).filter(Boolean)), [rows]);
   const allCategories = useMemo(
-    () => unique([...STANDARD_CATEGORIES, ...categories, ...rows.map(getRowCategory), ...groups.map((group) => group.category)].filter(Boolean)),
-    [categories, groups, rows]
+    () => unique([...STANDARD_CATEGORIES, ...categories, ...rows.map(getRowCategory)].filter(Boolean)),
+    [categories, rows]
+  );
+  const manualCategorySet = useMemo(
+    () => new Set([...categories, ...rows.map((row) => row.manualCategory?.trim()).filter((value): value is string => Boolean(value))]),
+    [categories, rows]
   );
 
   const visibleRows = useMemo(() => {
     const text = query.trim().toLowerCase();
     return rows
       .filter((row) => !supplier || row.supplierName === supplier)
+      .filter((row) => !categoryFilter || getRowCategory(row) === categoryFilter)
       .filter((row) => {
         if (!text) return true;
         return `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec} ${row.supplierName}`
@@ -56,7 +57,7 @@ export function ManualAdjustmentBoard({
           .includes(text);
       })
       .slice(0, 160);
-  }, [query, rows, supplier]);
+  }, [categoryFilter, query, rows, supplier]);
 
   const selectedRows = rows.filter((row) => selectedIds.includes(row.id));
 
@@ -68,27 +69,20 @@ export function ManualAdjustmentBoard({
     const category = newCategory.trim();
     if (!category) return;
     onCreateCategory(category);
+    setCategoryFilter(category);
     setNewCategory("");
   }
 
-  function createGroup() {
-    const name = newGroupName.trim();
-    if (!name) return;
-    const category = newGroupCategory || allCategories[0] || "其他";
-    onCreateGroup({ id: `manual-${Date.now()}-${Math.random().toString(16).slice(2)}`, name, category });
-    setNewGroupName("");
-    setNewGroupCategory("");
+  function deleteCategory(category: string) {
+    if (!category) return;
+    onDeleteCategory(category);
+    setCategoryFilter("");
+    setSelectedIds([]);
   }
 
   function applyCategory(category: string, rowIds = selectedIds) {
     if (rowIds.length === 0) return;
-    onUpdateRows(rowIds, { manualCategory: category });
-    setSelectedIds([]);
-  }
-
-  function applyGroup(group: ManualGroup, rowIds = selectedIds) {
-    if (rowIds.length === 0) return;
-    onUpdateRows(rowIds, { manualMatchKey: group.id, manualName: group.name, manualCategory: group.category });
+    onUpdateRows(rowIds, { manualCategory: category, manualMatchKey: "", manualName: "" });
     setSelectedIds([]);
   }
 
@@ -127,16 +121,15 @@ export function ManualAdjustmentBoard({
   }
 
   return (
-    <section className="reveal-in grid gap-3">
-      <div className="app-surface rounded-[24px] p-4">
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(520px,0.9fr)] xl:items-end">
+    <section className="reveal-in app-surface rounded-[22px] p-4">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(680px,1.05fr)] xl:items-end">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-ink">手工校准台</h3>
             <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
               手动调整分类、数量、单价和匹配关系；人工字段会优先参与后续报价对比、总成本和导出。
             </p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_150px]">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_180px_150px] xl:grid-cols-[minmax(0,1fr)_180px_180px_150px]">
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -151,6 +144,14 @@ export function ManualAdjustmentBoard({
               <option value="">全部供应商</option>
               {suppliers.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
+            <select
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
+              className="h-10 rounded-[14px] border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+            >
+              <option value="">全部品类</option>
+              {allCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
             <button
               type="button"
               onClick={() => clearManual()}
@@ -160,130 +161,32 @@ export function ManualAdjustmentBoard({
               清除所选人工规则
             </button>
           </div>
-        </div>
       </div>
 
-      <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="mt-4 grid min-h-0 gap-3">
+        <CategoryManager
+          rows={rows}
+          allCategories={allCategories}
+          selectedCategory={categoryFilter}
+          sortMode={categorySort}
+          manualCategorySet={manualCategorySet}
+          newCategory={newCategory}
+          onNewCategoryChange={setNewCategory}
+          onCreateCategory={createCategory}
+          onSelectCategory={setCategoryFilter}
+          onSortModeChange={setCategorySort}
+          onDeleteCategory={deleteCategory}
+          onDropRows={(event, category) => handleDrop(event, (rowIds) => applyCategory(category, rowIds))}
+        />
+
         <MaterialPool
           rows={visibleRows}
           selectedIds={selectedIds}
           selectedRows={selectedRows}
+          categories={allCategories}
           onToggleSelected={toggleSelected}
           onUpdateSingleRow={updateSingleRow}
         />
-
-        <aside className="grid gap-3 xl:max-h-[calc(100dvh-210px)] xl:grid-rows-[minmax(240px,0.9fr)_minmax(320px,1.1fr)]">
-          <section className="app-surface min-h-0 rounded-[24px] p-3">
-            <PanelHeader title="品类划分" meta={`${allCategories.length} 个品类`} />
-            <div className="mt-3 flex gap-2">
-              <input
-                value={newCategory}
-                onChange={(event) => setNewCategory(event.target.value)}
-                className="min-w-0 flex-1 rounded-[12px] border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
-                placeholder="创建新品类"
-              />
-              <button type="button" onClick={createCategory} className="rounded-full bg-slate-950 px-4 text-sm font-semibold text-white">
-                新建
-              </button>
-            </div>
-            <div className="mt-3 grid max-h-[32dvh] gap-2 overflow-y-auto pr-1 xl:max-h-[calc(100%-86px)]">
-              {allCategories.map((category) => {
-                const count = rows.filter((row) => getRowCategory(row) === category).length;
-                return (
-                  <button
-                    key={category}
-                    type="button"
-                    onClick={() => applyCategory(category)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => handleDrop(event, (rowIds) => applyCategory(category, rowIds))}
-                    className="motion-lift rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-slate-400 hover:bg-white"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="truncate text-sm font-semibold text-ink">{category}</span>
-                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-500 ring-1 ring-slate-200">{count}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="app-surface min-h-0 rounded-[24px] p-3">
-            <PanelHeader title="对比组匹配" meta={`${groups.length} 个组`} />
-            <div className="mt-3 grid gap-2">
-              <input
-                value={newGroupName}
-                onChange={(event) => setNewGroupName(event.target.value)}
-                className="rounded-[12px] border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
-                placeholder="例如：吊杆组 / 灯盘组"
-              />
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <select
-                  value={newGroupCategory}
-                  onChange={(event) => setNewGroupCategory(event.target.value)}
-                  className="min-w-0 rounded-[12px] border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
-                >
-                  <option value="">选择品类</option>
-                  {allCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-                </select>
-                <button type="button" onClick={createGroup} className="rounded-full bg-slate-950 px-4 text-sm font-semibold text-white">
-                  新建
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-3 grid max-h-[42dvh] gap-3 overflow-y-auto pr-1 xl:max-h-[calc(100%-126px)]">
-              {groups.map((group) => {
-                const groupRows = rows.filter((row) => row.manualMatchKey === group.id);
-                return (
-                  <div
-                    key={group.id}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => handleDrop(event, (rowIds) => applyGroup(group, rowIds))}
-                    className="rounded-[18px] border border-slate-200 bg-slate-50 p-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h4 className="truncate text-sm font-semibold text-ink">{group.name}</h4>
-                        <p className="truncate text-xs text-slate-500">{group.category} · {groupRows.length} 行</p>
-                      </div>
-                      <button type="button" onClick={() => onDeleteGroup(group.id)} className="text-xs font-semibold text-slate-400 hover:text-danger">
-                        删除
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => applyGroup(group)}
-                      className="mt-2 w-full rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
-                    >
-                      加入所选物料
-                    </button>
-                    <div className="mt-2 grid gap-1.5">
-                      {groupRows.slice(0, 5).map((row) => (
-                        <div key={row.id} className="rounded-[12px] bg-white px-2 py-1.5 text-xs ring-1 ring-slate-200">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate font-semibold text-ink">{row.materialName}</span>
-                            <span className="shrink-0 text-slate-500">{row.supplierName}</span>
-                          </div>
-                        </div>
-                      ))}
-                      {groupRows.length === 0 && (
-                        <div className="rounded-[12px] border border-dashed border-slate-300 p-3 text-center text-xs text-slate-400">
-                          拖入同类物料
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {groups.length === 0 && (
-                <div className="rounded-[16px] bg-slate-50 p-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">
-                  创建对比组后，把不同供应商的同类物料拖进去。
-                </div>
-              )}
-            </div>
-          </section>
-        </aside>
       </div>
     </section>
   );
@@ -293,12 +196,14 @@ function MaterialPool({
   rows,
   selectedIds,
   selectedRows,
+  categories,
   onToggleSelected,
   onUpdateSingleRow
 }: {
   rows: CanonicalBomRow[];
   selectedIds: string[];
   selectedRows: CanonicalBomRow[];
+  categories: string[];
   onToggleSelected: (rowId: string) => void;
   onUpdateSingleRow: (row: CanonicalBomRow, field: EditableField, value: string) => void;
 }) {
@@ -311,7 +216,7 @@ function MaterialPool({
           {selectedRows.length > 4 ? " ..." : ""}
         </div>
       )}
-      <div className="mt-3 max-h-[calc(100dvh-300px)] min-h-[420px] overflow-auto rounded-[18px] border border-slate-200 bg-white">
+      <div className="mt-3 max-h-[calc(100dvh-430px)] min-h-[360px] overflow-auto rounded-[18px] border border-slate-200 bg-white">
         <table className="min-w-[780px] text-left text-xs">
           <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 shadow-sm">
             <tr>
@@ -354,11 +259,13 @@ function MaterialPool({
                     <p className="px-2 text-[11px] text-slate-400">{row.spec || row.sourceFileName}</p>
                   </td>
                   <td className="px-2 py-2">
-                    <input
+                    <select
                       value={getRowCategory(row)}
                       onChange={(event) => onUpdateSingleRow(row, "category", event.target.value)}
                       className="w-32 rounded-[10px] border border-slate-200 bg-white px-2 py-1 text-slate-700 outline-none"
-                    />
+                    >
+                      {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                    </select>
                   </td>
                   <NumberCell value={row.quantity} onChange={(value) => onUpdateSingleRow(row, "quantity", value)} />
                   <NumberCell value={row.unitPrice} onChange={(value) => onUpdateSingleRow(row, "unitPrice", value)} />
@@ -380,6 +287,115 @@ function MaterialPool({
         </table>
       </div>
     </section>
+  );
+}
+
+function CategoryManager({
+  rows,
+  allCategories,
+  selectedCategory,
+  sortMode,
+  manualCategorySet,
+  newCategory,
+  onNewCategoryChange,
+  onCreateCategory,
+  onSelectCategory,
+  onSortModeChange,
+  onDeleteCategory,
+  onDropRows
+}: {
+  rows: CanonicalBomRow[];
+  allCategories: string[];
+  selectedCategory: string;
+  sortMode: "count" | "name";
+  manualCategorySet: Set<string>;
+  newCategory: string;
+  onNewCategoryChange: (value: string) => void;
+  onCreateCategory: () => void;
+  onSelectCategory: (category: string) => void;
+  onSortModeChange: (value: "count" | "name") => void;
+  onDeleteCategory: (category: string) => void;
+  onDropRows: (event: DragEvent, category: string) => void;
+}) {
+  const categoryItems = useMemo(() => {
+    return allCategories
+      .map((category) => ({ category, count: rows.filter((row) => getRowCategory(row) === category).length }))
+      .sort((a, b) => {
+        if (sortMode === "name") return a.category.localeCompare(b.category, "zh-CN");
+        return b.count - a.count || a.category.localeCompare(b.category, "zh-CN");
+      });
+  }, [allCategories, rows, sortMode]);
+
+  return (
+    <aside className="rounded-[20px] border border-slate-200 bg-white/70 p-3">
+      <PanelHeader title="品类池" meta={`${allCategories.length} 个品类`} />
+      <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+        <input
+          value={newCategory}
+          onChange={(event) => onNewCategoryChange(event.target.value)}
+          className="min-w-0 rounded-[12px] border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+          placeholder="创建新品类"
+        />
+        <button type="button" onClick={onCreateCategory} className="rounded-[14px] bg-slate-950 px-4 text-sm font-semibold text-white">
+          新建
+        </button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => onSortModeChange("count")}
+          className={`rounded-[14px] px-3 py-2 text-xs font-semibold ${sortMode === "count" ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+        >
+          按数量
+        </button>
+        <button
+          type="button"
+          onClick={() => onSortModeChange("name")}
+          className={`rounded-[14px] px-3 py-2 text-xs font-semibold ${sortMode === "name" ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+        >
+          按名称
+        </button>
+      </div>
+      <p className="mt-3 text-[11px] leading-5 text-slate-500">点击品类筛选物料；拖动物料到品类即可归类。</p>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
+        {categoryItems.map(({ category, count }) => {
+          const selected = selectedCategory === category;
+          const canDelete = manualCategorySet.has(category);
+          return (
+            <div
+              key={category}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => onDropRows(event, category)}
+              className={`group relative aspect-square min-h-[82px] rounded-[18px] border p-3 transition duration-200 active:scale-[0.98] ${
+                selected ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/15" : "border-slate-200 bg-slate-50 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white hover:shadow-md hover:shadow-slate-200/70"
+              }`}
+            >
+              <div className="flex h-full flex-col justify-between gap-2">
+                <button type="button" onClick={() => onSelectCategory(selected ? "" : category)} className="min-w-0 flex-1 text-left">
+                  <span className="block truncate text-sm font-semibold">{category}</span>
+                  <span className={selected ? "text-[11px] text-white/60" : "text-[11px] text-slate-500"}>{count} 行物料</span>
+                </button>
+                <div className="absolute right-2 top-2 flex shrink-0 items-center gap-1">
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteCategory(category)}
+                      className={`grid h-6 w-6 place-items-center rounded-[12px] text-sm font-semibold ${
+                        selected ? "text-white/60 hover:bg-white/10 hover:text-white" : "text-slate-400 hover:bg-white hover:text-danger"
+                      }`}
+                      aria-label={`删除品类 ${category}`}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </aside>
   );
 }
 

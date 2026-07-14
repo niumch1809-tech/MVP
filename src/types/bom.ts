@@ -56,6 +56,7 @@ export type CanonicalBomRow = {
 export type BomFileRecord = {
   id: string;
   fileName: string;
+  sourceSignature?: string;
   productName: string;
   supplierName: string;
   kind: BomFileKind;

@@ -15,6 +15,7 @@ import {
   YAxis
 } from "recharts";
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { CanonicalBomRow } from "@/types/bom";
 import { CostComparison, MaterialComparisonItem, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 import { isRollupCostRow, isSummaryCostItem } from "@/lib/bom/normalize";
@@ -28,10 +29,14 @@ type Props = {
 const SUPPLIER_COLORS = ["#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2"];
 const STRUCTURE_COLORS = ["#111827", "#2563eb", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#0891b2", "#64748b", "#14b8a6"];
 const SURFACE_RADIUS = "rounded-[22px]";
-const PANEL_CLASS = `app-surface motion-lift ${SURFACE_RADIUS} p-4`;
+const PANEL_CLASS = `app-surface motion-lift ${SURFACE_RADIUS} min-h-[240px] min-w-[320px] max-w-full resize overflow-auto p-4`;
 const CHART_SHELL_CLASS = `hairline-grid ${SURFACE_RADIUS} border border-slate-200 bg-slate-50/70 p-3`;
 const TABLE_SHELL_CLASS = `overflow-hidden ${SURFACE_RADIUS} border border-slate-200 bg-white`;
 const BAR_RADIUS: [number, number, number, number] = [8, 8, 0, 0];
+const BAR_SIZE = 32;
+const GROUPED_BAR_SIZE = 18;
+const BAR_GAP = 3;
+const BAR_CATEGORY_GAP = "8%";
 type MaterialSortKey = "materialName" | "category" | "minPrice" | "maxPrice" | "diffAmount" | "diffRate" | "coverage";
 type MaterialSortDirection = "asc" | "desc";
 
@@ -73,9 +78,9 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
                 </button>
               ))}
             </div>
-            <div className="h-[220px]">
+            <ChartFrame height={220} minHeight={200} maxHeight={420}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={supplierTotalRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }}>
+              <BarChart data={supplierTotalRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barCategoryGap={BAR_CATEGORY_GAP}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="supplierName" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
@@ -85,6 +90,8 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
                   fill="#2563eb"
                   name="报价"
                   radius={BAR_RADIUS}
+                  barSize={BAR_SIZE}
+                  maxBarSize={BAR_SIZE}
                   cursor="pointer"
                   onClick={(data) => {
                     const supplierName = String(data.supplierName ?? "");
@@ -94,11 +101,17 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
                     );
                   }}
                 >
+                  {supplierTotalRows.map((entry, index) => (
+                    <Cell
+                      key={String(entry.supplierName ?? index)}
+                      fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
+                    />
+                  ))}
                   <LabelList dataKey="totalAmountDiffLabel" position="top" className="fill-slate-500 text-[10px] font-semibold" />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-            </div>
+            </ChartFrame>
           </div>
         </section>
 
@@ -152,9 +165,9 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
         <div className={`${CHART_SHELL_CLASS} overflow-x-auto`}>
-          <div className="h-[250px]" style={{ minWidth: Math.max(720, totalRows.length * Math.max(140, comparison.activeSuppliers.length * 42)) }}>
+          <ChartFrame height={250} minHeight={220} maxHeight={520} minWidth={Math.max(560, totalRows.length * Math.max(92, comparison.activeSuppliers.length * 28))}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }}>
+              <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barGap={BAR_GAP} barCategoryGap={BAR_CATEGORY_GAP}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="costItem" tick={{ fontSize: 12 }} interval={0} />
                 <YAxis tick={{ fontSize: 12 }} />
@@ -167,6 +180,8 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
                     fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
                     name={supplier}
                     radius={BAR_RADIUS}
+                    barSize={GROUPED_BAR_SIZE}
+                    maxBarSize={GROUPED_BAR_SIZE}
                     cursor="pointer"
                     onClick={(data) => {
                       const costItem = String(data.costItem ?? "");
@@ -178,7 +193,7 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
                 ))}
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </ChartFrame>
         </div>
 
         <div className={TABLE_SHELL_CLASS}>
@@ -416,9 +431,9 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
         <span className="text-xs text-slate-500">横坐标为品类，柱子为供应商</span>
       </div>
       <div className={`${CHART_SHELL_CLASS} overflow-x-auto`}>
-        <div className="h-[270px]" style={{ minWidth: Math.max(720, comparison.categoryComparison.length * Math.max(112, comparison.activeSuppliers.length * 34)) }}>
+        <ChartFrame height={270} minHeight={230} maxHeight={560} minWidth={Math.max(620, comparison.categoryComparison.length * Math.max(82, comparison.activeSuppliers.length * 28))}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }}>
+          <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barGap={BAR_GAP} barCategoryGap={BAR_CATEGORY_GAP}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="category" tick={{ fontSize: 12 }} interval={0} angle={-18} textAnchor="end" height={72} />
             <YAxis tick={{ fontSize: 12 }} />
@@ -431,6 +446,8 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
                 fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
                 name={supplier}
                 radius={BAR_RADIUS}
+                barSize={GROUPED_BAR_SIZE}
+                maxBarSize={GROUPED_BAR_SIZE}
                 cursor="pointer"
                 onClick={(data) => {
                   const category = String(data.category ?? "");
@@ -447,7 +464,7 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
             ))}
           </BarChart>
         </ResponsiveContainer>
-        </div>
+        </ChartFrame>
       </div>
     </section>
   );
@@ -477,9 +494,9 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
         <span className="text-xs text-slate-500">横坐标为物料，柱子为供应商</span>
       </div>
       <div className={`${CHART_SHELL_CLASS} overflow-x-auto`}>
-        <div className="h-[300px]" style={{ minWidth: Math.max(820, chartRows.length * Math.max(104, comparison.activeSuppliers.length * 34)) }}>
+        <ChartFrame height={300} minHeight={250} maxHeight={620} minWidth={Math.max(680, chartRows.length * Math.max(88, comparison.activeSuppliers.length * 28))}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }}>
+          <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barGap={BAR_GAP} barCategoryGap={BAR_CATEGORY_GAP}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="materialName" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={70} />
             <YAxis tick={{ fontSize: 12 }} />
@@ -492,6 +509,8 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
                 fill={SUPPLIER_COLORS[index % SUPPLIER_COLORS.length]}
                 name={supplier}
                 radius={BAR_RADIUS}
+                barSize={GROUPED_BAR_SIZE}
+                maxBarSize={GROUPED_BAR_SIZE}
                 cursor="pointer"
                 onClick={(data) => {
                   const rows = Array.isArray(data.rows) ? data.rows : [];
@@ -505,7 +524,7 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
             ))}
           </BarChart>
         </ResponsiveContainer>
-        </div>
+        </ChartFrame>
       </div>
       {comparison.materialComparisons.length > chartRows.length && (
         <p className="mt-2 text-xs text-slate-500">图表显示差异最大的前 {maxChartItems} 个物料，完整物料仍在下方表格中。</p>
@@ -602,6 +621,34 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function ChartFrame({
+  children,
+  height,
+  minHeight,
+  maxHeight,
+  minWidth
+}: {
+  children: ReactNode;
+  height: number;
+  minHeight: number;
+  maxHeight: number;
+  minWidth?: number;
+}) {
+  return (
+    <div
+      className="overflow-auto"
+      style={{
+        height,
+        minHeight,
+        maxHeight,
+        minWidth
+      }}
+    >
+      {children}
     </div>
   );
 }

@@ -194,8 +194,23 @@ function isUsablePrice(value: unknown): boolean {
   return text !== "" && text !== "/" && text !== "-" && text.toLowerCase() !== "n/a";
 }
 
+function isTemplateInputSheetName(sheetName: string): boolean {
+  return sheetName.trim() === "输入";
+}
+
+function isTemplateOutputSheetName(sheetName: string): boolean {
+  return sheetName.trim() === "输出";
+}
+
+function isTemplateSummaryLabel(value: string): boolean {
+  return /材料成本合计|人工.*管理.*利润|核验总成本|出厂价/.test(value);
+}
+
 function readWorkbookSheets(workbook: XLSX.WorkBook): ParsedSheet[] {
-  return workbook.SheetNames.map((sheetName, sheetIndex) => readSheet(workbook, sheetName, sheetIndex))
+  const inputSheetNames = workbook.SheetNames.filter(isTemplateInputSheetName);
+  const sheetNames = inputSheetNames.length > 0 ? inputSheetNames : workbook.SheetNames.filter((sheetName) => !isTemplateOutputSheetName(sheetName));
+
+  return sheetNames.map((sheetName) => readSheet(workbook, sheetName, workbook.SheetNames.indexOf(sheetName)))
     .filter((sheet) => sheet.rows.length > 0 || Object.keys(sheet.fieldMapping).length > 0);
 }
 
@@ -210,10 +225,10 @@ function readSheet(workbook: XLSX.WorkBook, sheetName: string, sheetIndex: numbe
   const headerRowIndex = findHeaderRow(matrix);
   const headers = makeUniqueHeaders(matrix[headerRowIndex] ?? []);
   const fieldMapping = mapHeader(headers);
-  const rows = matrix
+  const rows = fillMergedCategoryValues(matrix
     .slice(headerRowIndex + 1)
     .map((cells) => rowFromCells(headers, cells))
-    .filter((row) => Object.values(row).some(hasValue));
+    .filter((row) => Object.values(row).some(hasValue)), fieldMapping);
 
   const warnings: string[] = [];
   if (headerRowIndex > 0) {
@@ -232,6 +247,22 @@ function readSheet(workbook: XLSX.WorkBook, sheetName: string, sheetIndex: numbe
     fieldMapping,
     warnings
   };
+}
+
+function fillMergedCategoryValues(rows: Array<Record<string, unknown>>, fieldMapping: BomFieldMapping): Array<Record<string, unknown>> {
+  const categoryKey = fieldMapping.category;
+  if (!categoryKey) return rows;
+
+  let currentCategory = "";
+  return rows.map((row) => {
+    const category = String(row[categoryKey] ?? "").trim();
+    if (category) {
+      currentCategory = category;
+      return row;
+    }
+    if (!currentCategory) return row;
+    return { ...row, [categoryKey]: currentCategory };
+  });
 }
 
 function findHeaderRow(matrix: unknown[][]): number {
@@ -282,9 +313,14 @@ function toCanonicalRow(
   const rawRemark = getString(row, fields.remark);
   const descriptor = parseMaterialDescriptor(rawMaterialName, rawSpec);
   const rawCategory = getString(row, fields.category);
+  const isTemplateSummaryRow = !descriptor.materialName && isTemplateSummaryLabel(rawCategory);
+  const materialName = descriptor.materialName || (isTemplateSummaryRow ? rawCategory : "");
+  const summaryAmountRaw = isTemplateSummaryRow && !hasValue(amountRaw) && !hasValue(quantityRaw) && hasValue(unitPriceRaw)
+    ? unitPriceRaw
+    : amountRaw;
   const inferredQuantity = inferQuantityFromText(rawMaterialName, rawSpec, rawRemark, quantityRaw);
-  const explicitAmount = toNumber(amountRaw);
-  const isSummaryRow = isSummaryCostItem(descriptor.materialName, rawCategory);
+  const explicitAmount = toNumber(summaryAmountRaw);
+  const isSummaryRow = isSummaryCostItem(materialName, rawCategory);
   const quantity = toNumber(quantityRaw) || inferredQuantity.quantity || (isSummaryRow && explicitAmount > 0 ? 1 : 0);
   const unitPrice =
     toNumber(unitPriceRaw) ||
@@ -294,12 +330,12 @@ function toCanonicalRow(
   const shouldCalculateAmount = !hasValue(amountRaw) && quantity > 0 && unitPrice > 0;
   const amount = shouldCalculateAmount ? calculatedAmount : explicitAmount;
   const dataIssues = buildDataIssues({
-    materialName: descriptor.materialName,
+    materialName,
     quantity,
     unitPrice,
     explicitAmount,
     calculatedAmount,
-    hasExplicitAmount: hasValue(amountRaw)
+    hasExplicitAmount: hasValue(summaryAmountRaw)
   });
 
   return {
@@ -312,8 +348,8 @@ function toCanonicalRow(
     supplierName: input.supplierName,
     kind: input.kind,
     partNumber: getString(row, fields.partNumber),
-    materialName: descriptor.materialName,
-    normalizedName: descriptor.normalizedName || normalizeMaterialName(descriptor.materialName),
+    materialName,
+    normalizedName: descriptor.normalizedName || normalizeMaterialName(materialName),
     spec: descriptor.spec,
     category: rawCategory,
     unit: normalizeUnit(getString(row, fields.unit)) || inferredQuantity.unit,
