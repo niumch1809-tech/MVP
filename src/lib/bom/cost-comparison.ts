@@ -58,6 +58,7 @@ export type MaterialComparisonItem = {
   materialName: string;
   matchKey: string;
   supplierMaterialNames: Record<string, string>;
+  supplierSpecs: Record<string, string>;
   category: string;
   minPrice: number;
   maxPrice: number;
@@ -204,6 +205,7 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
         materialName: buildDisplayMaterialName(materialRows),
         matchKey: buildMaterialMatchKey(materialRows[0]),
         supplierMaterialNames: buildSupplierMaterialNames(materialRows, suppliers),
+        supplierSpecs: buildSupplierSpecs(materialRows, suppliers),
         category: getEffectiveCategory(materialRows[0]),
         minPrice,
         maxPrice,
@@ -264,6 +266,22 @@ function buildSupplierMaterialNames(rows: CanonicalBomRow[], suppliers: string[]
         )
       );
       return [supplier, names.join(" / ")];
+    })
+  );
+}
+
+function buildSupplierSpecs(rows: CanonicalBomRow[], suppliers: string[]): Record<string, string> {
+  return Object.fromEntries(
+    suppliers.map((supplier) => {
+      const specs = Array.from(
+        new Set(
+          rows
+            .filter((row) => row.supplierName === supplier)
+            .map((row) => row.spec.trim())
+            .filter(Boolean)
+        )
+      );
+      return [supplier, specs.join(" / ")];
     })
   );
 }

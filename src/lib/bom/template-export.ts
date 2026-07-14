@@ -41,7 +41,7 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
   const supplierA = suppliers[0] || "供应商1";
   const supplierB = suppliers[1] || "供应商2";
   const rows: SheetCell[][] = [
-    ["品类", "物料", supplierA, supplierB, "差价", "差价%", supplierA, supplierB, "品类差异 金额/%"].map((value) => cell(value, STYLE.header))
+    ["品类", "物料", "规格描述", supplierA, supplierB, "差价", "差价%", supplierA, supplierB, "品类差异 金额/%"].map((value) => cell(value, STYLE.header))
   ];
   const merges: MergeRange[] = [];
 
@@ -70,6 +70,7 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
       rows.push([
         index === 0 ? cell(category, STYLE.category) : empty(STYLE.category),
         cell(getOutputMaterialName(item, suppliers, outputNameSupplier), STYLE.material),
+        cell(getOutputSpec(item, suppliers, outputNameSupplier), STYLE.material),
         hasAmountA ? cell(amountA, STYLE.money) : empty(),
         hasAmountB ? cell(amountB, STYLE.money) : empty(),
         canCompareMaterial ? cell(diff, amountRiskStyle) : empty(),
@@ -83,9 +84,9 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
     const endRow = rows.length;
     if (endRow > startRow) {
       merges.push(merge(startRow, 1, endRow, 1));
-      merges.push(merge(startRow, 7, endRow, 7));
       merges.push(merge(startRow, 8, endRow, 8));
       merges.push(merge(startRow, 9, endRow, 9));
+      merges.push(merge(startRow, 10, endRow, 10));
     }
   });
 
@@ -99,11 +100,12 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
       empty(STYLE.summaryLabel),
       empty(STYLE.summaryLabel),
       empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
       summary.amountA > 0 ? cell(summary.amountA, STYLE.summaryMoney) : empty(STYLE.summaryMoney),
       summary.amountB > 0 ? cell(summary.amountB, STYLE.summaryMoney) : empty(STYLE.summaryMoney),
       cell(formatDiffWithRate(diff, summary.diffRate), getSummaryDiffStyle(diff))
     ]);
-    merges.push(merge(rowNumber, 1, rowNumber, 6));
+    merges.push(merge(rowNumber, 1, rowNumber, 7));
   });
 
   return createXlsx(rows, merges);
@@ -161,6 +163,13 @@ function getOutputMaterialName(item: MaterialComparisonItem, suppliers: string[]
   const name = orderedSuppliers.map((supplier) => item.supplierMaterialNames[supplier]?.trim()).find(Boolean);
   if (name) return name;
   return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
+}
+
+function getOutputSpec(item: MaterialComparisonItem, suppliers: string[], outputNameSupplier: string): string {
+  const orderedSuppliers = outputNameSupplier
+    ? [outputNameSupplier, ...suppliers.filter((supplier) => supplier !== outputNameSupplier)]
+    : suppliers;
+  return orderedSuppliers.map((supplier) => item.supplierSpecs[supplier]?.trim()).find(Boolean) ?? "";
 }
 
 function getRiskLevel(diff: number): "none" | "yellow" | "red" {
@@ -264,14 +273,15 @@ function sheetXml(rows: SheetCell[][], merges: MergeRange[]): string {
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <dimension ref="A1:I${rows.length}"/>
+  <dimension ref="A1:J${rows.length}"/>
   <sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <cols>
     <col min="1" max="1" width="16" customWidth="1"/>
     <col min="2" max="2" width="34" customWidth="1"/>
-    <col min="3" max="6" width="13" customWidth="1"/>
-    <col min="7" max="8" width="16" customWidth="1"/>
-    <col min="9" max="9" width="22" customWidth="1"/>
+    <col min="3" max="3" width="34" customWidth="1"/>
+    <col min="4" max="7" width="13" customWidth="1"/>
+    <col min="8" max="9" width="16" customWidth="1"/>
+    <col min="10" max="10" width="22" customWidth="1"/>
   </cols>
   <sheetData>${rowXml}</sheetData>
   ${mergeXml}

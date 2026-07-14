@@ -413,23 +413,13 @@ export default function Home() {
           )}
 
           {activeView === "adjust" && (
-            <>
-              <FilterPanel
-                comparison={comparison}
-                filters={filters}
-                onReset={resetFilters}
-                onSelectAllSuppliers={selectAllSuppliers}
-                onSupplierChecked={setSupplierChecked}
-                onUpdateFilter={updateFilter}
-              />
-              <ManualAdjustmentBoard
-                rows={quoteRows}
-                categories={[...comparison.categories, ...manualCategories]}
-                onCreateCategory={createManualCategory}
-                onDeleteCategory={deleteManualCategory}
-                onUpdateRows={updateRows}
-              />
-            </>
+            <ManualAdjustmentBoard
+              rows={quoteRows}
+              categories={[...comparison.categories, ...manualCategories]}
+              onCreateCategory={createManualCategory}
+              onDeleteCategory={deleteManualCategory}
+              onUpdateRows={updateRows}
+            />
           )}
 
           {activeView === "details" && (
@@ -1113,7 +1103,7 @@ function getMarketRiskLabel(
 
 function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, outputNameSupplier: string): string {
   const supplierHeaders = comparison.activeSuppliers.map((supplier) => `${supplier}报价`);
-  const headers = ["分类", "名称", ...supplierHeaders, "差值", "百分比", "产品", "覆盖供应商"];
+  const headers = ["分类", "名称", "规格描述", ...supplierHeaders, "差值", "百分比", "产品", "覆盖供应商"];
   const body: string[][] = [];
 
   comparison.categories.forEach((category) => {
@@ -1127,6 +1117,7 @@ function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, out
     body.push([
       category,
       "分类合计",
+      "",
       ...categoryValues,
       categoryDiff.diff,
       Number.isFinite(categoryDiff.rate) ? `${(categoryDiff.rate * 100).toFixed(1)}%` : "",
@@ -1140,6 +1131,7 @@ function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, out
       body.push([
         category,
         getOutputMaterialName(item, comparison.activeSuppliers, outputNameSupplier),
+        getOutputSpec(item, comparison.activeSuppliers, outputNameSupplier),
         ...values.map((value) => (value > 0 ? value : "")),
         diff.diff,
         Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
@@ -1174,6 +1166,17 @@ function getOutputMaterialName(
   return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
 }
 
+function getOutputSpec(
+  item: ReturnType<typeof buildCostComparison>["materialComparisons"][number],
+  suppliers: string[],
+  outputNameSupplier: string
+): string {
+  const orderedSuppliers = outputNameSupplier
+    ? [outputNameSupplier, ...suppliers.filter((supplier) => supplier !== outputNameSupplier)]
+    : suppliers;
+  return orderedSuppliers.map((supplier) => item.supplierSpecs[supplier]?.trim()).find(Boolean) ?? "";
+}
+
 function getPairDiff(values: number[]): { diff: number | ""; rate: number } {
   if (values.length < 2 || values[0] <= 0) return { diff: "", rate: Number.NaN };
   const diff = values[1] - values[0];
@@ -1186,6 +1189,7 @@ function summaryCsvRow(label: string, totals: Record<string, number>, suppliers:
   return [
     "总计核验",
     label,
+    "",
     ...values.map((value) => (value > 0 ? value : "")),
     diff.diff,
     Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
