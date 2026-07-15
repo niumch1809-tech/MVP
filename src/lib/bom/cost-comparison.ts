@@ -5,7 +5,10 @@ export const STANDARD_CATEGORIES = [
   "结构件",
   "电子料",
   "光源",
+  "驱动/控制器",
+  "线材",
   "包装",
+  "五金",
   "人工",
   "表面处理",
   "模具/治具",
@@ -19,6 +22,8 @@ export const STANDARD_CATEGORIES = [
   "说明书",
   "灯盘组",
   "叶片组",
+  "电机",
+  "杂项",
   "人工/管理/利润",
   "材料成本合计",
   "出厂价",
@@ -130,17 +135,11 @@ function buildSupplierTotals(rows: CanonicalBomRow[], suppliers: string[]): Supp
   return suppliers
     .map((supplierName) => {
       const supplierRows = rows.filter((row) => row.supplierName === supplierName);
-      const factory = supplierRows
-        .filter((row) => getEffectiveCategory(row) === "出厂价")
-        .reduce((sum, row) => sum + row.amount, 0);
-      const overhead = supplierRows
-        .filter((row) => ["人工", "人工/管理/利润"].includes(getEffectiveCategory(row)) && !isRollupCostRow(row.materialName, row.category))
-        .reduce((sum, row) => sum + row.amount, 0);
-      const materialDetail = supplierRows.filter(isComparableCostRow).reduce((sum, row) => sum + row.amount, 0);
+      const totals = buildSupplierCostTotals(supplierRows);
 
       return {
         supplierName,
-        totalAmount: factory || materialDetail + overhead,
+        totalAmount: totals.factoryPrice || totals.materialTotal + totals.derivedOverhead,
         rowCount: supplierRows.length
       };
     })
@@ -326,26 +325,85 @@ function buildCostTotals(rows: CanonicalBomRow[], suppliers: string[]): CostTota
 
   suppliers.forEach((supplier) => {
     const supplierRows = rows.filter((row) => row.supplierName === supplier);
-    const materialSummary = supplierRows
-      .filter((row) => getEffectiveCategory(row) === "材料成本合计")
-      .reduce((sum, row) => sum + row.amount, 0);
-    const materialDetail = supplierRows
-      .filter(isComparableCostRow)
-      .reduce((sum, row) => sum + row.amount, 0);
-    const overhead = supplierRows
-      .filter((row) => ["人工", "人工/管理/利润"].includes(getEffectiveCategory(row)) && !isRollupCostRow(row.materialName, row.category))
-      .reduce((sum, row) => sum + row.amount, 0);
-    const factory = supplierRows
-      .filter((row) => getEffectiveCategory(row) === "出厂价")
-      .reduce((sum, row) => sum + row.amount, 0);
+    const totals = buildSupplierCostTotals(supplierRows);
 
-    materialTotals[supplier] = materialSummary || materialDetail;
-    overheadTotals[supplier] = overhead;
-    factoryPriceTotals[supplier] = factory;
-    derivedOverheadTotals[supplier] = overhead || (factory > 0 ? Math.max(factory - materialTotals[supplier], 0) : 0);
+    materialTotals[supplier] = totals.materialTotal;
+    overheadTotals[supplier] = totals.explicitOverhead;
+    factoryPriceTotals[supplier] = totals.factoryPrice;
+    derivedOverheadTotals[supplier] = totals.derivedOverhead;
   });
 
   return { materialTotals, overheadTotals, factoryPriceTotals, derivedOverheadTotals };
+}
+
+function buildSupplierCostTotals(rows: CanonicalBomRow[]): {
+  materialTotal: number;
+  explicitOverhead: number;
+  factoryPrice: number;
+  derivedOverhead: number;
+} {
+  const materialDetail = rows.filter(isComparableCostRow).reduce((sum, row) => sum + row.amount, 0);
+  const materialSummary = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCategory(row) === "材料成本合计"));
+  const explicitOverhead =
+    rows
+      .filter((row) => ["人工", "人工/管理/利润"].includes(getEffectiveCategory(row)) && !isRollupCostRow(row.materialName, row.category))
+      .reduce((sum, row) => sum + row.amount, 0) + sumAdditionalOverheadColumns(rows);
+  const factoryPrice = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCategory(row) === "出厂价"));
+
+  const materialTotal = chooseMaterialTotal({ materialSummary, materialDetail, factoryPrice });
+  const derivedOverhead = explicitOverhead || (factoryPrice > 0 ? Math.max(factoryPrice - materialTotal, 0) : 0);
+
+  return { materialTotal, explicitOverhead, factoryPrice, derivedOverhead };
+}
+
+function chooseMaterialTotal(input: { materialSummary: number; materialDetail: number; factoryPrice: number }): number {
+  const { materialSummary, materialDetail, factoryPrice } = input;
+  if (materialSummary <= 0) return materialDetail;
+
+  // 成本表的三层口径：材料成本是独立层级，优先信任明确的“材料成本/物料成本合计”。
+  // 只有当它明显等于或超过最终报价，且明细材料更合理时，才回退到明细汇总。
+  const summaryLooksLikeFinalPrice = factoryPrice > 0 && materialSummary >= factoryPrice;
+  const detailLooksUsable = materialDetail > 0 && (factoryPrice <= 0 || materialDetail < factoryPrice);
+  if (summaryLooksLikeFinalPrice && detailLooksUsable) return materialDetail;
+
+  return materialSummary;
+}
+
+function pickSingleSummaryAmount(rows: CanonicalBomRow[]): number {
+  const values = rows.map((row) => row.amount).filter((value) => value > 0);
+  if (values.length === 0) return 0;
+  return Math.max(...values);
+}
+
+function sumAdditionalOverheadColumns(rows: CanonicalBomRow[]): number {
+  const seen = new Set<string>();
+  return rows.reduce((sum, row) => {
+    if (isSummaryCostItem(row.materialName, row.category) || isRollupCostRow(row.materialName, row.category)) return sum;
+    return sum + Object.entries(row.originalFields ?? {}).reduce((fieldSum, [fieldName, rawValue]) => {
+      if (!isAdditionalOverheadField(fieldName)) return fieldSum;
+      const value = toLooseNumber(rawValue);
+      if (value <= 0) return fieldSum;
+      const dedupeKey = `${row.sourceFileId}|${row.sheetName}|${row.supplierName}|${fieldName}|${row.rowNumber}|${value}`;
+      if (seen.has(dedupeKey)) return fieldSum;
+      seen.add(dedupeKey);
+      return fieldSum + value;
+    }, 0);
+  }, 0);
+}
+
+function isAdditionalOverheadField(fieldName: string): boolean {
+  const normalized = fieldName.trim().toLowerCase();
+  if (!normalized) return false;
+  if (/出厂价|工厂价|最终合计|核验总成本|材料成本|材料合计|物料合计|合计|小计|总价|金额|amount|total|subtotal/.test(normalized)) {
+    return false;
+  }
+  return /人工|工时|管理|利润|毛利|损耗|杂费|附加费|服务费|装配费|加工费|overhead|profit|labor|fee|loss/.test(normalized);
+}
+
+function toLooseNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Number(String(value ?? "").replace(/[,，￥¥$]/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function uniqueSorted(values: string[]): string[] {

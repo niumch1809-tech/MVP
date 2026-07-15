@@ -71,6 +71,10 @@ export default function Home() {
   const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
   const quoteRows = useMemo(() => rows.filter((row) => row.kind === "supplier_quote"), [rows]);
   const comparison = useMemo(() => buildCostComparison(rows, filters), [rows, filters]);
+  const categoryOptions = useMemo(
+    () => buildCostComparison(rows, { ...filters, category: "" }).categories,
+    [filters, rows]
+  );
   const issueCount = useMemo(
     () => comparison.filteredRows.reduce((sum, row) => sum + row.dataIssues.length, 0),
     [comparison.filteredRows]
@@ -394,6 +398,7 @@ export default function Home() {
           {activeView === "compare" && (
             <>
               <FilterPanel
+                categoryOptions={categoryOptions}
                 comparison={comparison}
                 filters={filters}
                 onReset={resetFilters}
@@ -425,6 +430,7 @@ export default function Home() {
           {activeView === "details" && (
             <>
               <FilterPanel
+                categoryOptions={categoryOptions}
                 comparison={comparison}
                 filters={filters}
                 onReset={resetFilters}
@@ -515,6 +521,7 @@ export default function Home() {
                 </div>
               </div>
               <FilterPanel
+                categoryOptions={categoryOptions}
                 comparison={comparison}
                 filters={filters}
                 onReset={resetFilters}
@@ -684,7 +691,7 @@ function UploadView({
             </div>
             <h3 className="mt-2 text-lg font-semibold text-ink">先下载标准模板，或查看 BOM 核验流程</h3>
             <p className="mt-1 text-sm leading-6 text-slate-500">
-              模板文件会原样下载，保留输入表和输出表的格式、合并单元格和颜色样式。
+              下载文件只包含供应商需要填写的输入工作表；输出格式由平台按模板结构自动生成。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -697,7 +704,7 @@ function UploadView({
             </button>
             <a
               href="/templates/bom-input-output-template.xlsx"
-              download="BOM输入输出模板.xlsx"
+              download="BOM输入模板2.0.xlsx"
               className="motion-lift rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 active:scale-[0.98]"
             >
               获取 BOM 表输入模板
@@ -842,6 +849,19 @@ function UploadView({
               <p className="mt-1 text-[11px] text-slate-400">
                 {new Date(record.uploadedAt).toLocaleString("zh-CN", { hour12: false })}
               </p>
+              {record.parseWarnings.length > 0 && (
+                <details className="mt-2 rounded-[14px] bg-white px-3 py-2 text-[11px] text-slate-500 ring-1 ring-slate-200">
+                  <summary className="cursor-pointer font-semibold text-slate-600">
+                    解析诊断 {record.parseWarnings.length} 条
+                  </summary>
+                  <div className="mt-2 grid gap-1 leading-5">
+                    {record.parseWarnings.slice(0, 8).map((warning, index) => (
+                      <p key={`${record.id}-warning-${index}`}>{warning}</p>
+                    ))}
+                    {record.parseWarnings.length > 8 && <p>还有 {record.parseWarnings.length - 8} 条诊断未显示。</p>}
+                  </div>
+                </details>
+              )}
             </div>
           ))}
           {records.length === 0 && <div className="rounded-[18px] bg-slate-50 p-8 text-center text-sm text-slate-500">暂无解析记录。</div>}
@@ -921,6 +941,7 @@ function UserGuideModal({ onClose }: { onClose: () => void }) {
 }
 
 function FilterPanel({
+  categoryOptions,
   comparison,
   filters,
   onReset,
@@ -928,6 +949,7 @@ function FilterPanel({
   onSupplierChecked,
   onUpdateFilter
 }: {
+  categoryOptions: string[];
   comparison: ReturnType<typeof buildCostComparison>;
   filters: CostFilters;
   onReset: () => void;
@@ -991,7 +1013,7 @@ function FilterPanel({
             className="mt-2 h-11 w-full rounded-[22px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
           >
             <option value="">全部品类</option>
-            {comparison.categories.map((category) => (
+            {categoryOptions.map((category) => (
               <option key={category} value={category}>
                 {category}
               </option>
@@ -1102,8 +1124,8 @@ function getMarketRiskLabel(
 }
 
 function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, outputNameSupplier: string): string {
-  const supplierHeaders = comparison.activeSuppliers.map((supplier) => `${supplier}报价`);
-  const headers = ["分类", "名称", "规格描述", ...supplierHeaders, "差值", "百分比", "产品", "覆盖供应商"];
+  const supplierHeaders = comparison.activeSuppliers.flatMap((supplier) => [`${supplier}报价`, `${supplier}规格描述`]);
+  const headers = ["分类", "名称", ...supplierHeaders, "差值", "百分比", "产品", "覆盖供应商"];
   const body: string[][] = [];
 
   comparison.categories.forEach((category) => {
@@ -1117,8 +1139,7 @@ function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, out
     body.push([
       category,
       "分类合计",
-      "",
-      ...categoryValues,
+      ...comparison.activeSuppliers.flatMap((_, index) => [categoryValues[index], ""]),
       categoryDiff.diff,
       Number.isFinite(categoryDiff.rate) ? `${(categoryDiff.rate * 100).toFixed(1)}%` : "",
       "",
@@ -1131,8 +1152,10 @@ function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, out
       body.push([
         category,
         getOutputMaterialName(item, comparison.activeSuppliers, outputNameSupplier),
-        getOutputSpec(item, comparison.activeSuppliers, outputNameSupplier),
-        ...values.map((value) => (value > 0 ? value : "")),
+        ...comparison.activeSuppliers.flatMap((supplier, index) => [
+          values[index] > 0 ? values[index] : "",
+          item.supplierSpecs[supplier]?.trim() ?? ""
+        ]),
         diff.diff,
         Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
         item.productName,
@@ -1166,17 +1189,6 @@ function getOutputMaterialName(
   return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
 }
 
-function getOutputSpec(
-  item: ReturnType<typeof buildCostComparison>["materialComparisons"][number],
-  suppliers: string[],
-  outputNameSupplier: string
-): string {
-  const orderedSuppliers = outputNameSupplier
-    ? [outputNameSupplier, ...suppliers.filter((supplier) => supplier !== outputNameSupplier)]
-    : suppliers;
-  return orderedSuppliers.map((supplier) => item.supplierSpecs[supplier]?.trim()).find(Boolean) ?? "";
-}
-
 function getPairDiff(values: number[]): { diff: number | ""; rate: number } {
   if (values.length < 2 || values[0] <= 0) return { diff: "", rate: Number.NaN };
   const diff = values[1] - values[0];
@@ -1189,11 +1201,9 @@ function summaryCsvRow(label: string, totals: Record<string, number>, suppliers:
   return [
     "总计核验",
     label,
-    "",
-    ...values.map((value) => (value > 0 ? value : "")),
+    ...values.flatMap((value) => [value > 0 ? value : "", ""]),
     diff.diff,
     Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
-    "",
     "",
     ""
   ].map(escapeCsv);

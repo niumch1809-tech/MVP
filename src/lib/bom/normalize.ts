@@ -1,38 +1,4 @@
-const canonicalMaterialRules: Array<{ pattern: RegExp; name: string; category?: string; ignoreSpec?: boolean }> = [
-  { pattern: /吊钟组|吊钟|吊盅/i, name: "吊钟组", category: "吊钟组", ignoreSpec: true },
-  { pattern: /吊杆组|吊杆|吊管/i, name: "吊杆组", category: "吊杆组", ignoreSpec: true },
-  { pattern: /端子排|端子座/i, name: "端子排/端子座", category: "端子排/端子座", ignoreSpec: true },
-  { pattern: /电线|线组|地线|黄绿线|线材|导线|端子线|wire|cable/i, name: "电线/线组", category: "电线/线组", ignoreSpec: true },
-  { pattern: /塑胶袋|po袋|p\.?o\.?袋|pe袋|p\.?e\.?袋/i, name: "包装袋", category: "包装袋", ignoreSpec: true },
-  { pattern: /五金包组|五金包/i, name: "五金包", category: "五金包", ignoreSpec: true },
-  { pattern: /说明书组|说明书|manual/i, name: "说明书", category: "说明书", ignoreSpec: true },
-  { pattern: /灯盘组|灯盘/i, name: "灯盘组", category: "灯盘组", ignoreSpec: true },
-  { pattern: /叶片组|叶片|扇叶/i, name: "叶片组", category: "叶片组", ignoreSpec: true },
-  { pattern: /人工管理费|人工\/管理|人工及管理|人工管理利润|人工\/管理\/利润/i, name: "人工/管理/利润", category: "人工/管理/利润", ignoreSpec: true },
-  { pattern: /人工|工时|组装|装配|labor/i, name: "人工", category: "人工", ignoreSpec: true },
-  { pattern: /管理费|管理|overhead/i, name: "管理费", category: "人工/管理/利润", ignoreSpec: true },
-  { pattern: /利润|毛利|profit/i, name: "利润", category: "人工/管理/利润", ignoreSpec: true },
-  { pattern: /出厂价|工厂价|含税出厂|factory/i, name: "出厂价", category: "出厂价", ignoreSpec: true },
-  { pattern: /材料成本合计|材料合计|物料合计|bom合计|总材料/i, name: "材料成本合计", category: "材料成本合计", ignoreSpec: true },
-  { pattern: /电阻|resistor|res\b/i, name: "resistor" },
-  { pattern: /电容|capacitor|cap\b/i, name: "capacitor" },
-  { pattern: /芯片|ic|mcu|chip/i, name: "ic" },
-  { pattern: /连接器|connector|conn/i, name: "connector" },
-  { pattern: /螺丝|螺钉|screw/i, name: "screw", category: "五金包" },
-  { pattern: /螺母|螺帽|nut/i, name: "nut", category: "五金包" },
-  { pattern: /垫片|washer/i, name: "washer", category: "五金包" },
-  { pattern: /灯珠|led/i, name: "led", category: "光源" },
-  { pattern: /光源|cob/i, name: "led", category: "光源" },
-  { pattern: /驱动|电源|driver|power supply/i, name: "driver", category: "电子料" },
-  { pattern: /外壳|壳体|housing|case/i, name: "housing", category: "结构件" },
-  { pattern: /铝件|铝壳|散热器|heatsink/i, name: "housing", category: "结构件" },
-  { pattern: /透镜|lens/i, name: "lens", category: "光源" },
-  { pattern: /扩散板|扩散罩|diffuser/i, name: "diffuser", category: "光源" },
-  { pattern: /pcb|电路板|铝基板/i, name: "pcb", category: "电子料" },
-  { pattern: /纸箱|彩盒|包装盒|外箱|carton|box/i, name: "package", category: "包装" },
-  { pattern: /泡棉|泡沫|foam/i, name: "foam", category: "包装" },
-  { pattern: /标签|label/i, name: "label", category: "包装" }
-];
+import { findCategoryKnowledgeMatch, findMaterialKnowledgeMatch } from "./material-knowledge";
 
 export type ParsedMaterialDescriptor = {
   materialName: string;
@@ -67,9 +33,9 @@ export function parseMaterialDescriptor(nameValue: unknown, specValue: unknown):
   const extractedSpec = uniqueParts([rawSpec, ...extractSpecParts(merged)]).join(" ");
   const materialName = cleanupMaterialTitle(rawName || merged, extractedSpec);
   const baseText = materialName || merged;
-  const canonicalRule = findCanonicalMaterialRule(baseText);
-  const normalizedBase = canonicalRule?.name ?? normalizeMaterialBase(baseText);
-  const specFingerprint = canonicalRule?.ignoreSpec ? "" : normalizeSpecFingerprint(extractedSpec);
+  const knowledgeMatch = findMaterialKnowledgeMatch(baseText);
+  const normalizedBase = knowledgeMatch?.canonicalName ?? normalizeMaterialBase(baseText);
+  const specFingerprint = knowledgeMatch?.ignoreSpec ? "" : normalizeSpecFingerprint(extractedSpec);
   const normalizedName = [normalizedBase, specFingerprint].filter(Boolean).join("|");
 
   return {
@@ -81,14 +47,18 @@ export function parseMaterialDescriptor(nameValue: unknown, specValue: unknown):
 
 export function normalizeBomCategory(categoryValue: unknown, materialNameValue: unknown = ""): string {
   const text = cleanText(`${categoryValue ?? ""} ${materialNameValue ?? ""}`);
-  const canonicalRule = findCanonicalMaterialRule(text);
-  if (canonicalRule?.category) return canonicalRule.category;
+  const knowledgeCategory = findCategoryKnowledgeMatch(categoryValue, materialNameValue);
+  if (knowledgeCategory) return knowledgeCategory;
 
   const lower = text.toLowerCase();
-  if (/结构|外壳|壳体|铝|五金|支架|灯体|塑件|housing|case/.test(lower)) return "结构件";
-  if (/电子|电阻|电容|芯片|驱动|电源|控制器|线材|pcb|ic|mcu|driver|resistor|capacitor/.test(lower)) return "电子料";
+  if (/结构|外壳|壳体|铝|铁|钢|不锈钢|锌合金|合金|金属|支架|固定片|固定板|安装板|底座|底盘|灯体|塑件|塑胶|杆|管|框|边框|面罩|堵头|端盖|housing|case/.test(lower)) return "结构件";
+  if (/驱动|电源|控制器|driver|power\s*supply|controller/.test(lower)) return "驱动/控制器";
+  if (/线材|电线|电子线|电源线|插座|线夹|wire|cable/.test(lower)) return "线材";
+  if (/电子|电阻|电容|芯片|pcb|ic|mcu|resistor|capacitor/.test(lower)) return "电子料";
   if (/光源|光电|灯珠|led|cob|铝基板/.test(lower)) return "光源";
   if (/包装|纸箱|彩盒|泡沫|泡棉|说明书|标签|外箱|carton|box|package/.test(lower)) return "包装";
+  if (/五金|螺丝|螺母|垫片|扳手/.test(lower)) return "五金";
+  if (/脚垫|胶水|酒精|辅料|杂项/.test(lower)) return "杂项";
   if (/人工|工时|组装|装配|labor/.test(lower)) return "人工";
   if (/表面|喷涂|电镀|氧化|烤漆|处理|finish|coating/.test(lower)) return "表面处理";
   if (/模具|治具|夹具|tooling|fixture|mold/.test(lower)) return "模具/治具";
@@ -160,10 +130,6 @@ export function toNumber(value: unknown): number {
 
 export function hasValue(value: unknown): boolean {
   return String(value ?? "").trim() !== "";
-}
-
-function findCanonicalMaterialRule(value: string) {
-  return canonicalMaterialRules.find((rule) => rule.pattern.test(value));
 }
 
 function isCategoryNameOnlyRollup(materialName: string, category: string): boolean {

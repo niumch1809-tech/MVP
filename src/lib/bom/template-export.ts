@@ -41,7 +41,7 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
   const supplierA = suppliers[0] || "供应商1";
   const supplierB = suppliers[1] || "供应商2";
   const rows: SheetCell[][] = [
-    ["品类", "物料", "规格描述", supplierA, supplierB, "差价", "差价%", supplierA, supplierB, "品类差异 金额/%"].map((value) => cell(value, STYLE.header))
+    ["品类", "物料", supplierA, `${supplierA}规格描述`, supplierB, `${supplierB}规格描述`, "差价", "差价%", supplierA, supplierB, "品类差异/%"].map((value) => cell(value, STYLE.header))
   ];
   const merges: MergeRange[] = [];
 
@@ -70,9 +70,10 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
       rows.push([
         index === 0 ? cell(category, STYLE.category) : empty(STYLE.category),
         cell(getOutputMaterialName(item, suppliers, outputNameSupplier), STYLE.material),
-        cell(getOutputSpec(item, suppliers, outputNameSupplier), STYLE.material),
         hasAmountA ? cell(amountA, STYLE.money) : empty(),
+        cell(getSupplierSpec(item, supplierA), STYLE.material),
         hasAmountB ? cell(amountB, STYLE.money) : empty(),
+        cell(getSupplierSpec(item, supplierB), STYLE.material),
         canCompareMaterial ? cell(diff, amountRiskStyle) : empty(),
         canCompareMaterial && Number.isFinite(diffRate) ? cell(diffRate, percentRiskStyle) : empty(),
         index === 0 && categoryA > 0 ? cell(categoryA, STYLE.money) : empty(),
@@ -84,9 +85,9 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
     const endRow = rows.length;
     if (endRow > startRow) {
       merges.push(merge(startRow, 1, endRow, 1));
-      merges.push(merge(startRow, 8, endRow, 8));
       merges.push(merge(startRow, 9, endRow, 9));
       merges.push(merge(startRow, 10, endRow, 10));
+      merges.push(merge(startRow, 11, endRow, 11));
     }
   });
 
@@ -101,11 +102,12 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
       empty(STYLE.summaryLabel),
       empty(STYLE.summaryLabel),
       empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
       summary.amountA > 0 ? cell(summary.amountA, STYLE.summaryMoney) : empty(STYLE.summaryMoney),
       summary.amountB > 0 ? cell(summary.amountB, STYLE.summaryMoney) : empty(STYLE.summaryMoney),
       cell(formatDiffWithRate(diff, summary.diffRate), getSummaryDiffStyle(diff))
     ]);
-    merges.push(merge(rowNumber, 1, rowNumber, 7));
+    merges.push(merge(rowNumber, 1, rowNumber, 8));
   });
 
   return createXlsx(rows, merges);
@@ -142,9 +144,8 @@ function getCategoryAmount(
   supplier: string,
   items: MaterialComparisonItem[]
 ): number {
-  const categoryRow = comparison.categoryComparison.find((row) => row.category === category);
-  const fromCategory = Number(categoryRow?.[supplier] ?? 0);
-  if (fromCategory > 0) return fromCategory;
+  void comparison;
+  void category;
   return items.reduce((sum, item) => sum + getMaterialAmount(item, supplier), 0);
 }
 
@@ -165,11 +166,8 @@ function getOutputMaterialName(item: MaterialComparisonItem, suppliers: string[]
   return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
 }
 
-function getOutputSpec(item: MaterialComparisonItem, suppliers: string[], outputNameSupplier: string): string {
-  const orderedSuppliers = outputNameSupplier
-    ? [outputNameSupplier, ...suppliers.filter((supplier) => supplier !== outputNameSupplier)]
-    : suppliers;
-  return orderedSuppliers.map((supplier) => item.supplierSpecs[supplier]?.trim()).find(Boolean) ?? "";
+function getSupplierSpec(item: MaterialComparisonItem, supplier: string): string {
+  return item.supplierSpecs[supplier]?.trim() ?? "";
 }
 
 function getRiskLevel(diff: number): "none" | "yellow" | "red" {

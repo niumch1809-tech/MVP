@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { CanonicalBomRow } from "@/types/bom";
 import { CostComparison, MaterialComparisonItem } from "@/lib/bom/cost-comparison";
 
@@ -31,7 +31,7 @@ type DisplayRow =
       id: string;
       category: string;
       name: string;
-      specDescription: string;
+      supplierSpecs: Record<string, string>;
       matchKey: string;
       supplierMaterialNames: Record<string, string>;
       productName: string;
@@ -80,11 +80,15 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
             <tr>
               <SortHeader label="分类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
               <SortHeader label="名称" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
-              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">规格描述</th>
               {suppliers.map((supplier) => (
-                <th key={supplier} className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
-                  {supplier}报价
-                </th>
+                <Fragment key={supplier}>
+                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
+                    {supplier}报价
+                  </th>
+                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">
+                    {supplier}规格描述
+                  </th>
+                </Fragment>
               ))}
               <SortHeader label="差值" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
               <SortHeader label="百分比" active={sortKey === "diffRate"} direction={sortDirection} align="right" onClick={() => toggleSort("diffRate")} />
@@ -106,13 +110,15 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
                   {item.kind === "item" ? <span className="mr-2 text-slate-300">└</span> : null}
                   {item.name}
                 </td>
-                <td className="max-w-[280px] px-3 py-3 text-xs leading-5 text-slate-500">
-                  {item.kind === "item" ? item.specDescription || <span className="text-slate-300">-</span> : ""}
-                </td>
                 {suppliers.map((supplier) => (
-                  <td key={supplier} className="whitespace-nowrap px-3 py-3 text-right text-slate-700">
-                    {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-slate-300">-</span>}
-                  </td>
+                  <Fragment key={supplier}>
+                    <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700">
+                      {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-slate-300">-</span>}
+                    </td>
+                    <td className="max-w-[240px] px-3 py-3 text-xs leading-5 text-slate-500">
+                      {item.kind === "item" ? item.supplierSpecs[supplier] || <span className="text-slate-300">-</span> : ""}
+                    </td>
+                  </Fragment>
                 ))}
                 <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
                   {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
@@ -132,11 +138,13 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
               <tr key={item.label} className="border-b border-slate-100 bg-ink text-white">
                 <td className="whitespace-nowrap px-3 py-3">总计核验</td>
                 <td className="whitespace-nowrap px-3 py-3 font-semibold">{item.label}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-xs text-white/45">-</td>
                 {suppliers.map((supplier) => (
-                  <td key={supplier} className="whitespace-nowrap px-3 py-3 text-right">
-                    {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-white/35">-</span>}
-                  </td>
+                  <Fragment key={supplier}>
+                    <td className="whitespace-nowrap px-3 py-3 text-right">
+                      {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-white/35">-</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-xs text-white/45">-</td>
+                  </Fragment>
                 ))}
                 <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
                   {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
@@ -150,7 +158,7 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={suppliers.length + 7} className="px-3 py-10 text-center text-sm text-slate-500">
+                <td colSpan={suppliers.length * 2 + 6} className="px-3 py-10 text-center text-sm text-slate-500">
                   当前没有可输出的整合对比数据。
                 </td>
               </tr>
@@ -223,7 +231,7 @@ function buildDisplayRows(comparison: CostComparison, sortKey: SortKey, sortDire
         id: item.id,
         category: item.category,
         name: getOutputMaterialName(item, comparison.activeSuppliers, outputNameSupplier),
-        specDescription: getOutputSpec(item, comparison.activeSuppliers, outputNameSupplier),
+        supplierSpecs: item.supplierSpecs,
         matchKey: item.matchKey,
         supplierMaterialNames: item.supplierMaterialNames,
         productName: item.productName,
@@ -288,13 +296,6 @@ function getOutputMaterialName(item: MaterialComparisonItem, suppliers: string[]
   const name = orderedSuppliers.map((supplier) => item.supplierMaterialNames[supplier]?.trim()).find(Boolean);
   if (name) return name;
   return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
-}
-
-function getOutputSpec(item: MaterialComparisonItem, suppliers: string[], preferredSupplier: string): string {
-  const orderedSuppliers = preferredSupplier
-    ? [preferredSupplier, ...suppliers.filter((supplier) => supplier !== preferredSupplier)]
-    : suppliers;
-  return orderedSuppliers.map((supplier) => item.supplierSpecs[supplier]?.trim()).find(Boolean) ?? "";
 }
 
 function getPairDiff(values: number[]): { diffAmount: number; diffRate: number } {

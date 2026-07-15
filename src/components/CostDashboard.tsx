@@ -259,6 +259,8 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
 }
 
 function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows }: Props) {
+  const legendRows = buildSharedPieLegendRows(comparison, selectedCategory);
+
   return (
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -273,7 +275,15 @@ function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows
         </span>
       </div>
 
-      <div className="grid max-h-[520px] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      {legendRows.length > 0 && (
+        <SharedPieLegend
+          rows={legendRows}
+          selectedCategory={selectedCategory}
+          onSelect={(item) => onInspectRows(item.rows, `成本结构来源：${item.name}`)}
+        />
+      )}
+
+      <div className="mt-3 grid max-h-[520px] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {comparison.activeSuppliers.map((supplier) => (
           <SupplierPieCard
             key={supplier}
@@ -314,7 +324,7 @@ function SupplierPieCard({
       </div>
       <div className="h-[210px] overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
+          <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
             <Tooltip
               formatter={(value, _name, item) => {
                 const amount = Number(value);
@@ -326,6 +336,8 @@ function SupplierPieCard({
               data={pieRows}
               dataKey="value"
               nameKey="name"
+              cx="50%"
+              cy="50%"
               innerRadius={42}
               outerRadius={74}
               paddingAngle={2}
@@ -335,16 +347,64 @@ function SupplierPieCard({
               }}
             >
               {pieRows.map((entry, index) => (
-                <Cell key={entry.name} fill={selectedCategory ? getStableColor(entry.name, index) : getCategoryColor(entry.name, index)} />
+                <Cell key={entry.name} fill={getPieSliceColor(entry.name, index, selectedCategory)} />
               ))}
             </Pie>
-            <Legend layout="horizontal" align="center" verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 11 }} />
           </PieChart>
         </ResponsiveContainer>
       </div>
       {pieRows.length === 0 && <p className="mt-2 text-xs text-slate-500">当前筛选范围内暂无该供应商占比数据。</p>}
     </div>
   );
+}
+
+type PieLegendRow = { name: string; value: number; rows: CanonicalBomRow[] };
+
+function SharedPieLegend({
+  rows,
+  selectedCategory,
+  onSelect
+}: {
+  rows: PieLegendRow[];
+  selectedCategory: string;
+  onSelect: (item: PieLegendRow) => void;
+}) {
+  return (
+    <div className="rounded-[20px] bg-white/80 p-2 ring-1 ring-slate-200/80">
+      <div className="flex max-h-[132px] flex-wrap gap-1.5 overflow-y-auto pr-1">
+        {rows.map((item, index) => {
+          const color = getPieSliceColor(item.name, index, selectedCategory);
+          return (
+            <button
+              key={item.name}
+              type="button"
+              onClick={() => onSelect(item)}
+              className="group inline-flex max-w-[260px] items-center gap-2 rounded-[14px] bg-slate-50 px-2.5 py-1.5 text-left transition hover:bg-white hover:ring-1 hover:ring-slate-200"
+              title={`${item.name} ${formatMoney(item.value)}`}
+            >
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+              <span className="truncate text-xs font-semibold text-slate-600 group-hover:text-ink">{item.name}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function buildSharedPieLegendRows(comparison: CostComparison, selectedCategory: string): PieLegendRow[] {
+  const groups = new Map<string, PieLegendRow>();
+  comparison.activeSuppliers.forEach((supplier) => {
+    const supplierRows = comparison.filteredRows.filter((row) => row.supplierName === supplier && isVisualCostRow(row));
+    const pieRows = selectedCategory ? buildSupplierMaterialPieRows(supplierRows) : buildSupplierCategoryPieRows(supplierRows);
+    pieRows.forEach((item) => {
+      const current = groups.get(item.name) ?? { name: item.name, value: 0, rows: [] };
+      current.value += item.value;
+      current.rows = [...current.rows, ...item.rows];
+      groups.set(item.name, current);
+    });
+  });
+  return Array.from(groups.values()).sort((a, b) => b.value - a.value);
 }
 
 function buildTotalCostRows(comparison: CostComparison): Array<Record<string, string | number>> {
@@ -802,6 +862,10 @@ function getSupplierColor(supplier: string, fallbackIndex = 0): string {
 
 function getCategoryColor(category: string, fallbackIndex = 0): string {
   return CATEGORY_COLORS[category] ?? getStableColor(category, fallbackIndex);
+}
+
+function getPieSliceColor(name: string, fallbackIndex: number, selectedCategory: string): string {
+  return selectedCategory ? getStableColor(name, fallbackIndex) : getCategoryColor(name, fallbackIndex);
 }
 
 function getStableColor(value: string, fallbackIndex = 0, palette = FALLBACK_COLORS): string {

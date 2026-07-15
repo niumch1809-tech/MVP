@@ -96,13 +96,7 @@ const aliases: Record<BomFieldKey, string[]> = {
     "成本",
     "材料成本",
     "材料成本合计",
-    "材料合计",
-    "人工管理费",
-    "人工费",
-    "管理费",
-    "利润",
-    "出厂价",
-    "工厂价"
+    "材料合计"
   ],
   remark: ["remark", "remarks", "note", "notes", "comment", "备注", "说明", "备注说明"],
   currency: ["currency", "币种", "货币"]

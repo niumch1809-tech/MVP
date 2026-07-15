@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { BomDataIssue, BomFileKind, BomFieldMapping, BomFileRecord, CanonicalBomRow } from "@/types/bom";
+import { parseComplexBomWorkbook } from "./complex-parser";
 import { mapHeader, scoreHeaderRow } from "./field-map";
 import {
   hasValue,
@@ -52,6 +53,11 @@ export async function parseBomFileInBrowser(input: BrowserParseInput): Promise<B
 
   if (workbook.SheetNames.length === 0) {
     throw new Error("文件中没有可读取的工作表。");
+  }
+
+  const complexResult = parseComplexBomWorkbook(workbook, input);
+  if (complexResult.shouldUse && complexResult.record) {
+    return complexResult.record;
   }
 
   const parsedSheets = readWorkbookSheets(workbook);
@@ -360,7 +366,7 @@ function isTemplateOutputSheetName(sheetName: string): boolean {
 }
 
 function isTemplateSummaryLabel(value: string): boolean {
-  return /材料成本合计|人工.*管理.*利润|核验总成本|出厂价/.test(value);
+  return /材料成本合计|物料成本|原材料成本|人工.*管理.*利润|核验总成本|出厂价/.test(value);
 }
 
 function getValue(row: Record<string, unknown>, key?: string): unknown {
