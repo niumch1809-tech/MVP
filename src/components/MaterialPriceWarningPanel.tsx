@@ -40,14 +40,14 @@ export function MaterialPriceWarningPanel({
     .slice(0, 8);
 
   return (
-    <section className="rounded-[24px] bg-slate-950 p-4 text-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
+    <section className="brand-panel min-w-0 max-w-full overflow-hidden rounded-[20px] p-4 text-white shadow-[0_18px_48px_rgba(15,23,42,0.14)]">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/70">
+          <div className="type-micro inline-flex rounded-[10px] bg-white/10 px-3 py-1 text-white/70">
             常规材料价格接口
           </div>
-          <h3 className="mt-3 text-lg font-semibold">供应商报价 vs 材料参考价</h3>
-          <p className="mt-1 text-sm text-white/58">
+          <h3 className="type-section-title mt-3">供应商报价 vs 材料参考价</h3>
+          <p className="type-body mt-1 text-white/58">
             {result
               ? `${result.sourceName}，更新时间 ${formatDate(result.generatedAt)}`
               : `待刷新：将对当前筛选范围内 ${rowCount} 行 BOM 做行情核验。`}
@@ -57,30 +57,30 @@ export function MaterialPriceWarningPanel({
           type="button"
           onClick={onRefresh}
           disabled={isLoading || rowCount === 0}
-          className="motion-lift rounded-full bg-white px-5 py-2 text-sm font-semibold text-slate-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+          className="motion-lift rounded-[14px] bg-white px-5 py-2 text-[13px] font-semibold text-slate-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isLoading ? "刷新中..." : "刷新材料价格"}
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
-        <label className="block">
-          <span className="text-xs font-semibold text-white/54">价格接口 URL</span>
+      <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <label className="block min-w-0">
+          <span className="type-caption font-semibold text-white/54">价格接口 URL</span>
           <input
             value={providerUrl}
             onChange={(event) => onProviderUrlChange(event.target.value)}
-            className="mt-2 h-10 w-full rounded-[14px] border border-white/10 bg-white/8 px-3 text-sm text-white outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] placeholder:text-white/28 focus:border-white/30"
+            className="mt-2 h-10 w-full rounded-[12px] border border-white/10 bg-white/8 px-3 text-[13px] text-white outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] placeholder:text-white/28 focus:border-white/30"
             placeholder="https://example.com/material-price-api"
           />
         </label>
 
-        <label className="block">
-          <span className="text-xs font-semibold text-white/54">上传材料价格表</span>
+        <label className="block min-w-0">
+          <span className="type-caption font-semibold text-white/54">上传材料价格表</span>
           <input
             type="file"
             accept=".xlsx,.xls,.csv"
             onChange={(event) => onPriceFileChange(event.target.files?.[0] ?? null)}
-            className="mt-2 h-10 w-full rounded-[14px] bg-white/8 px-3 py-1.5 text-sm text-white file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-950"
+            className="mt-2 h-10 w-full rounded-[12px] bg-white/8 px-3 py-1.5 text-[13px] text-white file:mr-3 file:rounded-[10px] file:border-0 file:bg-white file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-950"
           />
         </label>
 
@@ -88,14 +88,14 @@ export function MaterialPriceWarningPanel({
           type="button"
           onClick={onClearUploadedPrices}
           disabled={uploadedPriceCount === 0}
-          className="motion-lift mt-5 h-10 rounded-full border border-white/16 px-4 text-sm font-semibold text-white/76 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          className="motion-lift mt-5 h-10 rounded-[14px] border border-white/16 px-4 text-[13px] font-semibold text-white/76 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
         >
           清空价格表
         </button>
       </div>
 
       {(sourceMessage || uploadedPriceCount > 0 || priceFileName) && (
-        <div className="mt-3 rounded-[18px] bg-white/7 p-3 text-xs text-white/62 ring-1 ring-white/10">
+        <div className="type-caption mt-3 rounded-[18px] bg-white/7 p-3 text-white/62 ring-1 ring-white/10">
           {sourceMessage || `已载入 ${priceFileName}，共 ${uploadedPriceCount} 条参考价。上传价格表优先于 URL 接口。`}
         </div>
       )}
@@ -110,8 +110,8 @@ export function MaterialPriceWarningPanel({
       {error && <div className="mt-4 rounded-[18px] bg-red-500/12 p-3 text-sm text-red-100 ring-1 ring-red-300/20">{error}</div>}
 
       {warningRows.length > 0 && (
-        <div className="mt-4 overflow-hidden rounded-[18px] bg-white/7 ring-1 ring-white/10">
-          <table className="min-w-full text-left text-xs">
+        <div className="mt-4 max-w-full overflow-auto rounded-[18px] bg-white/7 ring-1 ring-white/10">
+          <table className="type-table resizable-table min-w-[760px] text-left">
             <thead className="text-white/48">
               <tr>
                 <th className="px-3 py-2 font-semibold">物料</th>
@@ -147,8 +147,8 @@ function Signal({ label, value, tone = "normal" }: { label: string; value: strin
   const color = tone === "danger" ? "text-red-200" : tone === "warn" ? "text-amber-200" : "text-white";
   return (
     <div className="rounded-[18px] bg-white/7 p-3 ring-1 ring-white/10">
-      <p className="text-[11px] font-semibold text-white/48">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${color}`}>{value}</p>
+      <p className="type-micro text-white/48">{label}</p>
+      <p className={`mt-1 text-[1.7rem] font-bold leading-none ${color}`}>{value}</p>
     </div>
   );
 }

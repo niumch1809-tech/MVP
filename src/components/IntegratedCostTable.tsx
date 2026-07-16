@@ -63,29 +63,32 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
   }
 
   return (
-    <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70">
-      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="app-surface w-full min-w-0 max-w-full overflow-hidden rounded-[20px]">
+      <div className="flex flex-col gap-2 border-b border-slate-200/80 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-ink">完整成本对比表</h3>
-          <p className="text-xs text-slate-500">先按标准分类合计，再展开可追溯明细；差值按第二个对比对象减第一个。</p>
+          <h3 className="type-panel-title text-ink">完整成本对比表</h3>
+          <p className="type-caption text-slate-500">先按标准分类合计，再展开可追溯明细；差值按第二个对比对象减第一个。</p>
         </div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+        <span className="type-caption rounded-[12px] bg-white/82 px-3 py-1 font-semibold text-slate-600 ring-1 ring-slate-200/80">
           {comparison.materialComparisons.length} 个物料 / {suppliers.length} 个对比对象
         </span>
       </div>
 
-      <div className="max-h-[620px] overflow-auto">
-        <table className="min-w-full border-collapse text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-white/95 text-xs text-slate-500 shadow-sm">
+      <div className="max-h-[620px] max-w-full overflow-auto">
+        <table
+          className="type-table resizable-table text-left"
+          style={{ minWidth: Math.max(1180, suppliers.length * 260 + 620) }}
+        >
+          <thead className="sticky top-0 z-10 bg-white/95 text-slate-500 shadow-sm backdrop-blur">
             <tr>
               <SortHeader label="分类" active={sortKey === "category"} direction={sortDirection} onClick={() => toggleSort("category")} />
               <SortHeader label="名称" active={sortKey === "materialName"} direction={sortDirection} onClick={() => toggleSort("materialName")} />
               {suppliers.map((supplier) => (
                 <Fragment key={supplier}>
-                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
+                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 text-right font-semibold">
                     {supplier}报价
                   </th>
-                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">
+                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold">
                     {supplier}规格描述
                   </th>
                 </Fragment>
@@ -93,67 +96,67 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
               <SortHeader label="差值" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
               <SortHeader label="百分比" active={sortKey === "diffRate"} direction={sortDirection} align="right" onClick={() => toggleSort("diffRate")} />
               <SortHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
-              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">追溯</th>
+              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold">追溯</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((item) => (
               <tr
                 key={item.id}
-                className={`cursor-pointer border-b border-slate-100 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-50 ${
-                  item.kind === "category" ? "bg-slate-50/80 font-semibold" : "bg-white"
+                className={`cursor-pointer border-b border-slate-100 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-emerald-50/60 ${
+                  item.kind === "category" ? "bg-slate-50/80 font-semibold" : "bg-white/92"
                 }`}
                 onClick={() => onInspectRows(item.rows, `${item.kind === "category" ? "分类合计" : "整合明细"}：${item.category} / ${item.name}`)}
               >
-                <td className="whitespace-nowrap px-3 py-3 text-slate-700">{item.category}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-ink">
+                <td className="whitespace-nowrap px-3 py-2 text-slate-700">{item.category}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-ink">
                   {item.kind === "item" ? <span className="mr-2 text-slate-300">└</span> : null}
                   {item.name}
                 </td>
                 {suppliers.map((supplier) => (
                   <Fragment key={supplier}>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700">
+                    <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">
                       {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-slate-300">-</span>}
                     </td>
-                    <td className="max-w-[240px] px-3 py-3 text-xs leading-5 text-slate-500">
+                    <td className="max-w-[240px] px-3 py-2 text-xs leading-5 text-slate-500">
                       {item.kind === "item" ? item.supplierSpecs[supplier] || <span className="text-slate-300">-</span> : ""}
                     </td>
                   </Fragment>
                 ))}
-                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
+                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
                   {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
                 </td>
-                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
+                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
                   {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
                 </td>
-                <td className="whitespace-nowrap px-3 py-3 text-right text-slate-600">
+                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-600">
                   {item.coverage}/{item.totalSlots}
                 </td>
-                <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">
                   {item.kind === "item" ? `${item.productName || "未指定产品"} / ${item.rows.length} 行来源` : `${item.rows.length} 行来源`}
                 </td>
               </tr>
             ))}
             {buildSummaryRows(comparison).map((item) => (
               <tr key={item.label} className="border-b border-slate-100 bg-ink text-white">
-                <td className="whitespace-nowrap px-3 py-3">总计核验</td>
-                <td className="whitespace-nowrap px-3 py-3 font-semibold">{item.label}</td>
+                <td className="whitespace-nowrap px-3 py-2">总计核验</td>
+                <td className="whitespace-nowrap px-3 py-2 font-semibold">{item.label}</td>
                 {suppliers.map((supplier) => (
                   <Fragment key={supplier}>
-                    <td className="whitespace-nowrap px-3 py-3 text-right">
+                    <td className="whitespace-nowrap px-3 py-2 text-right">
                       {item.amounts[supplier] > 0 ? formatMoney(item.amounts[supplier]) : <span className="text-white/35">-</span>}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-xs text-white/45">-</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-white/45">-</td>
                   </Fragment>
                 ))}
-                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
+                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
                   {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
                 </td>
-                <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
+                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
                   {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
                 </td>
-                <td className="whitespace-nowrap px-3 py-3 text-right text-white/70">-</td>
-                <td className="whitespace-nowrap px-3 py-3 text-xs text-white/65">{item.note}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-white/70">-</td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/65">{item.note}</td>
               </tr>
             ))}
             {rows.length === 0 && (
@@ -262,7 +265,7 @@ function SortHeader({
   onClick: () => void;
 }) {
   return (
-    <th className={`whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold ${align === "right" ? "text-right" : "text-left"}`}>
+    <th className={`whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold ${align === "right" ? "text-right" : "text-left"}`}>
       <button
         type="button"
         onClick={onClick}

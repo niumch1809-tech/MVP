@@ -51,10 +51,13 @@ export function normalizeBomCategory(categoryValue: unknown, materialNameValue: 
   if (knowledgeCategory) return knowledgeCategory;
 
   const lower = text.toLowerCase();
+  if (/吊钟|吊盅|吊杆|吊管|灯盘|吸顶盘|安装盘|canopy|downrod|ceiling\s*pan/.test(lower)) return "结构件";
+  if (/端子排|端子座|接线端子|电线|线组|端子线|连接线|terminal|wire|cable/.test(lower)) return "线材";
+  if (/包装袋|塑胶袋|胶袋|po袋|p\.o袋|pe袋|p\.e袋|说明书|manual|instruction|bag/.test(lower)) return "包装";
   if (/结构|外壳|壳体|铝|铁|钢|不锈钢|锌合金|合金|金属|支架|固定片|固定板|安装板|底座|底盘|灯体|塑件|塑胶|杆|管|框|边框|面罩|堵头|端盖|housing|case/.test(lower)) return "结构件";
-  if (/驱动|电源|控制器|driver|power\s*supply|controller/.test(lower)) return "驱动/控制器";
+  if (/铝基板|铝基线路板|al\s*pcb|mcpcb/.test(lower)) return "光源";
+  if (/驱动|电源|控制器|电子|电子料|电阻|电容|芯片|pcb|pcba|电路|线路板|ic|mcu|resistor|capacitor|driver|power\s*supply|controller/.test(lower)) return "驱动/控制器";
   if (/线材|电线|电子线|电源线|插座|线夹|wire|cable/.test(lower)) return "线材";
-  if (/电子|电阻|电容|芯片|pcb|ic|mcu|resistor|capacitor/.test(lower)) return "电子料";
   if (/光源|光电|灯珠|led|cob|铝基板/.test(lower)) return "光源";
   if (/包装|纸箱|彩盒|泡沫|泡棉|说明书|标签|外箱|carton|box|package/.test(lower)) return "包装";
   if (/五金|螺丝|螺母|垫片|扳手/.test(lower)) return "五金";

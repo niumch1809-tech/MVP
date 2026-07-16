@@ -3,7 +3,6 @@ import { isRollupCostRow, isSummaryCostItem, normalizeBomCategory } from "./norm
 
 export const STANDARD_CATEGORIES = [
   "结构件",
-  "电子料",
   "光源",
   "驱动/控制器",
   "线材",
@@ -13,14 +12,7 @@ export const STANDARD_CATEGORIES = [
   "表面处理",
   "模具/治具",
   "物流/损耗",
-  "吊钟组",
-  "吊杆组",
-  "端子排/端子座",
-  "电线/线组",
-  "包装袋",
   "五金包",
-  "说明书",
-  "灯盘组",
   "叶片组",
   "电机",
   "杂项",
@@ -98,7 +90,8 @@ export function buildCostComparison(rows: CanonicalBomRow[], filters: CostFilter
   const suppliers = uniqueSorted(quoteRows.map((row) => row.supplierName).filter(Boolean));
   const activeSuppliers =
     filters.supplierNames.length > 0 ? suppliers.filter((supplier) => filters.supplierNames.includes(supplier)) : suppliers;
-  const filteredRows = quoteRows.filter((row) => matchesFilters(row, filters));
+  const filterContext = buildFilterContext(filters);
+  const filteredRows = quoteRows.filter((row) => matchesFilters(row, filters, filterContext));
   const comparableRows = filteredRows.filter(isComparableCostRow);
 
   return {
@@ -118,13 +111,24 @@ export function normalizeCostCategory(category: string, materialName = ""): stri
   return normalizeBomCategory(category, materialName);
 }
 
-function matchesFilters(row: CanonicalBomRow, filters: CostFilters): boolean {
+function buildFilterContext(filters: CostFilters) {
+  return {
+    supplierNames: new Set(filters.supplierNames),
+    query: filters.materialQuery.trim().toLowerCase()
+  };
+}
+
+function matchesFilters(
+  row: CanonicalBomRow,
+  filters: CostFilters,
+  context: ReturnType<typeof buildFilterContext>
+): boolean {
   const category = getEffectiveCategory(row);
   const materialText = `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec}`.toLowerCase();
-  const query = filters.materialQuery.trim().toLowerCase();
+  const query = context.query;
 
   return (
-    (filters.supplierNames.length === 0 || filters.supplierNames.includes(row.supplierName)) &&
+    (context.supplierNames.size === 0 || context.supplierNames.has(row.supplierName)) &&
     (!filters.productName || row.productName === filters.productName) &&
     (!filters.category || category === filters.category) &&
     (!query || materialText.includes(query))
@@ -132,9 +136,10 @@ function matchesFilters(row: CanonicalBomRow, filters: CostFilters): boolean {
 }
 
 function buildSupplierTotals(rows: CanonicalBomRow[], suppliers: string[]): SupplierTotal[] {
+  const rowsBySupplier = groupRowsBy(rows, (row) => row.supplierName);
   return suppliers
     .map((supplierName) => {
-      const supplierRows = rows.filter((row) => row.supplierName === supplierName);
+      const supplierRows = rowsBySupplier.get(supplierName) ?? [];
       const totals = buildSupplierCostTotals(supplierRows);
 
       return {
@@ -148,22 +153,33 @@ function buildSupplierTotals(rows: CanonicalBomRow[], suppliers: string[]): Supp
 }
 
 function buildCategoryComparison(rows: CanonicalBomRow[], suppliers: string[]): CategoryComparisonRow[] {
-  return buildCategories(rows).map((category) => {
-    const categoryRows = rows.filter((row) => getEffectiveCategory(row) === category);
-    const result: CategoryComparisonRow = {
-      category,
-      totalAmount: categoryRows.reduce((sum, row) => sum + row.amount, 0),
-      rows: categoryRows
-    };
+  const categoryMap = new Map<string, CategoryComparisonRow>();
 
-    suppliers.forEach((supplier) => {
-      result[supplier] = categoryRows
-        .filter((row) => row.supplierName === supplier)
-        .reduce((sum, row) => sum + row.amount, 0);
-    });
+  rows.forEach((row) => {
+    const category = getEffectiveCategory(row);
+    const current =
+      categoryMap.get(category) ??
+      ({
+        category,
+        totalAmount: 0,
+        rows: []
+      } as CategoryComparisonRow);
 
-    return result;
-  }).filter((row) => row.totalAmount > 0);
+    current.totalAmount += row.amount;
+    current.rows.push(row);
+    current[row.supplierName] = Number(current[row.supplierName] ?? 0) + row.amount;
+    categoryMap.set(category, current);
+  });
+
+  return Array.from(categoryMap.values())
+    .map((row) => {
+      suppliers.forEach((supplier) => {
+        row[supplier] = Number(row[supplier] ?? 0);
+      });
+      return row;
+    })
+    .filter((row) => row.totalAmount > 0)
+    .sort((a, b) => b.totalAmount - a.totalAmount || a.category.localeCompare(b.category, "zh-CN"));
 }
 
 function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]): MaterialComparisonItem[] {
@@ -172,14 +188,20 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
     .filter((row) => row.materialName.trim())
     .forEach((row) => {
       const key = buildMaterialMatchKey(row);
-      groups.set(key, [...(groups.get(key) ?? []), row]);
+      const group = groups.get(key);
+      if (group) {
+        group.push(row);
+      } else {
+        groups.set(key, [row]);
+      }
     });
 
   return Array.from(groups.entries())
     .map(([key, materialRows]) => {
+      const rowsBySupplier = groupRowsBy(materialRows, (row) => row.supplierName);
       const supplierPoints = suppliers
         .map((supplierName) => {
-          const supplierRows = materialRows.filter((row) => row.supplierName === supplierName);
+          const supplierRows = rowsBySupplier.get(supplierName) ?? [];
           if (supplierRows.length === 0) return null;
           const amount = supplierRows.reduce((sum, row) => sum + row.amount, 0);
           const quantity = supplierRows.reduce((sum, row) => sum + row.quantity, 0);
@@ -203,8 +225,8 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
         productName: buildDisplayProductName(materialRows),
         materialName: buildDisplayMaterialName(materialRows),
         matchKey: buildMaterialMatchKey(materialRows[0]),
-        supplierMaterialNames: buildSupplierMaterialNames(materialRows, suppliers),
-        supplierSpecs: buildSupplierSpecs(materialRows, suppliers),
+        supplierMaterialNames: buildSupplierMaterialNames(rowsBySupplier, suppliers),
+        supplierSpecs: buildSupplierSpecs(rowsBySupplier, suppliers),
         category: getEffectiveCategory(materialRows[0]),
         minPrice,
         maxPrice,
@@ -225,6 +247,20 @@ function buildMaterialMatchKey(row: CanonicalBomRow): string {
     return row.manualMatchKey;
   }
   return buildMaterialIdentity(row);
+}
+
+function groupRowsBy(rows: CanonicalBomRow[], getKey: (row: CanonicalBomRow) => string): Map<string, CanonicalBomRow[]> {
+  const groups = new Map<string, CanonicalBomRow[]>();
+  rows.forEach((row) => {
+    const key = getKey(row);
+    const group = groups.get(key);
+    if (group) {
+      group.push(row);
+    } else {
+      groups.set(key, [row]);
+    }
+  });
+  return groups;
 }
 
 function buildDisplayMaterialName(rows: CanonicalBomRow[]): string {
@@ -253,13 +289,12 @@ function buildDisplayProductName(rows: CanonicalBomRow[]): string {
   return `${labels.slice(0, 3).join(" / ")}${labels.length > 3 ? "..." : ""}`;
 }
 
-function buildSupplierMaterialNames(rows: CanonicalBomRow[], suppliers: string[]): Record<string, string> {
+function buildSupplierMaterialNames(rowsBySupplier: Map<string, CanonicalBomRow[]>, suppliers: string[]): Record<string, string> {
   return Object.fromEntries(
     suppliers.map((supplier) => {
       const names = Array.from(
         new Set(
-          rows
-            .filter((row) => row.supplierName === supplier)
+          (rowsBySupplier.get(supplier) ?? [])
             .map((row) => row.materialName.trim())
             .filter(Boolean)
         )
@@ -269,13 +304,12 @@ function buildSupplierMaterialNames(rows: CanonicalBomRow[], suppliers: string[]
   );
 }
 
-function buildSupplierSpecs(rows: CanonicalBomRow[], suppliers: string[]): Record<string, string> {
+function buildSupplierSpecs(rowsBySupplier: Map<string, CanonicalBomRow[]>, suppliers: string[]): Record<string, string> {
   return Object.fromEntries(
     suppliers.map((supplier) => {
       const specs = Array.from(
         new Set(
-          rows
-            .filter((row) => row.supplierName === supplier)
+          (rowsBySupplier.get(supplier) ?? [])
             .map((row) => row.spec.trim())
             .filter(Boolean)
         )
@@ -322,9 +356,10 @@ function buildCostTotals(rows: CanonicalBomRow[], suppliers: string[]): CostTota
   const overheadTotals: Record<string, number> = {};
   const factoryPriceTotals: Record<string, number> = {};
   const derivedOverheadTotals: Record<string, number> = {};
+  const rowsBySupplier = groupRowsBy(rows, (row) => row.supplierName);
 
   suppliers.forEach((supplier) => {
-    const supplierRows = rows.filter((row) => row.supplierName === supplier);
+    const supplierRows = rowsBySupplier.get(supplier) ?? [];
     const totals = buildSupplierCostTotals(supplierRows);
 
     materialTotals[supplier] = totals.materialTotal;

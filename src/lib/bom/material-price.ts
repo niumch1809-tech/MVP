@@ -25,7 +25,7 @@ type ExternalPriceResponse = {
 
 const CATEGORY_BASE_PRICE: Record<string, number> = {
   "结构件": 8.8,
-  "电子料": 1.2,
+  "驱动/控制器": 12.5,
   "光源": 3.6,
   "包装": 1.6,
   "人工": 6.5,

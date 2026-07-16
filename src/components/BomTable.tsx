@@ -133,21 +133,21 @@ export function BomTable({ rows, priceComparisonsByRowId = {} }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
+      <div className="type-body border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-500">
         当前没有可展示的 BOM 明细。请上传 BOM，或调整筛选条件。
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70">
-      <div className="max-h-[540px] overflow-auto">
-        <table className="min-w-full border-collapse text-left text-sm">
-          <thead className="sticky top-0 bg-white/95 text-xs text-slate-600 shadow-sm">
+    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[22px] bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70">
+      <div className="max-h-[560px] max-w-full overflow-auto">
+        <table className="type-table resizable-table min-w-[1680px] text-left">
+          <thead className="sticky top-0 bg-white/95 text-slate-600 shadow-sm">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <th key={header.id} className="whitespace-nowrap border-b border-slate-200 px-3 py-3 font-semibold">
+                  <th key={header.id} className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold">
                     <button
                       className="rounded-full px-2 py-1 text-left transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-slate-100"
                       onClick={header.column.getToggleSortingHandler()}
@@ -169,7 +169,7 @@ export function BomTable({ rows, priceComparisonsByRowId = {} }: Props) {
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
-                      className={`whitespace-nowrap px-3 py-3 text-slate-700 ${
+                      className={`whitespace-nowrap px-3 py-2 text-slate-700 ${
                         cell.column.id === "materialName" ? "font-semibold text-ink" : ""
                       }`}
                     >
@@ -179,9 +179,9 @@ export function BomTable({ rows, priceComparisonsByRowId = {} }: Props) {
                 </tr>
                 {expandedRowId === row.original.id && (
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <td colSpan={columns.length} className="px-3 py-3">
+                    <td colSpan={columns.length} className="px-3 py-2">
                       {row.original.dataIssues.length > 0 && (
-                        <div className="mb-3 border border-red-200 bg-red-50 p-3 text-sm text-danger">
+                        <div className="type-body mb-3 border border-red-200 bg-red-50 p-3 text-danger">
                           {row.original.dataIssues.map((issue, index) => (
                             <p key={`${issue.type}-${index}`}>
                               {issue.message}
@@ -193,7 +193,7 @@ export function BomTable({ rows, priceComparisonsByRowId = {} }: Props) {
                         </div>
                       )}
                       {priceComparisonsByRowId[row.original.id] && (
-                        <div className="mb-3 rounded-[16px] bg-blue-50 p-3 text-sm text-slate-700 ring-1 ring-blue-100">
+                        <div className="type-body mb-3 rounded-[16px] bg-blue-50 p-3 text-slate-700 ring-1 ring-blue-100">
                           <p className="font-semibold text-ink">材料行情核验</p>
                           <p className="mt-1">{priceComparisonsByRowId[row.original.id].rule}</p>
                           <p className="mt-1 text-slate-600">{priceComparisonsByRowId[row.original.id].suggestion}</p>

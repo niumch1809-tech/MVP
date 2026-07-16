@@ -5,7 +5,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   LabelList,
   Pie,
   PieChart,
@@ -19,6 +18,12 @@ import type { ReactNode } from "react";
 import { CanonicalBomRow } from "@/types/bom";
 import { CostComparison, MaterialComparisonItem, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 import { isRollupCostRow, isSummaryCostItem } from "@/lib/bom/normalize";
+import {
+  getCostCategoryColor,
+  getCostCategorySeriesColor,
+  getCostMaterialColor,
+  SUPPLIER_CHART_COLORS
+} from "@/lib/design/cost-palette";
 
 type Props = {
   comparison: CostComparison;
@@ -26,69 +31,67 @@ type Props = {
   onInspectRows: (rows: CanonicalBomRow[], title: string) => void;
 };
 
-const SUPPLIER_COLORS = ["#2563eb", "#16a34a", "#f97316", "#7c3aed", "#dc2626", "#0891b2", "#4f46e5", "#ca8a04"];
-const CATEGORY_COLORS: Record<string, string> = {
-  "结构件": "#2563eb",
-  "电子料": "#16a34a",
-  "光源": "#f59e0b",
-  "包装": "#8b5cf6",
-  "人工": "#ef4444",
-  "表面处理": "#06b6d4",
-  "模具/治具": "#64748b",
-  "物流/损耗": "#14b8a6",
-  "吊钟组": "#0ea5e9",
-  "吊杆组": "#22c55e",
-  "端子排/端子座": "#eab308",
-  "电线/线组": "#f97316",
-  "包装袋": "#a855f7",
-  "五金包": "#475569",
-  "说明书": "#84cc16",
-  "灯盘组": "#0284c7",
-  "叶片组": "#db2777",
-  "人工/管理/利润": "#dc2626",
-  "材料成本合计": "#111827",
-  "出厂价": "#0f766e",
-  "其他": "#94a3b8"
-};
-const FALLBACK_COLORS = ["#2563eb", "#16a34a", "#f97316", "#8b5cf6", "#ef4444", "#06b6d4", "#64748b", "#14b8a6"];
-const SURFACE_RADIUS = "rounded-[22px]";
-const PANEL_CLASS = `app-surface motion-lift ${SURFACE_RADIUS} min-h-[240px] min-w-[320px] max-w-full resize overflow-auto p-4`;
-const CHART_SHELL_CLASS = `hairline-grid ${SURFACE_RADIUS} border border-slate-200 bg-slate-50/70 p-3`;
-const TABLE_SHELL_CLASS = `overflow-hidden ${SURFACE_RADIUS} border border-slate-200 bg-white`;
-const BAR_RADIUS: [number, number, number, number] = [8, 8, 0, 0];
+const SUPPLIER_COLORS = SUPPLIER_CHART_COLORS;
+const SURFACE_RADIUS = "rounded-[18px]";
+const PANEL_CLASS = "dashboard-card dashboard-card-compact motion-lift min-h-[240px] resize";
+const CHART_SHELL_CLASS = "chart-shell p-3";
+const TABLE_SHELL_CLASS = `${SURFACE_RADIUS} border border-slate-200/80 bg-white/84`;
+const BAR_RADIUS: [number, number, number, number] = [7, 7, 0, 0];
 const BAR_SIZE = 32;
 const GROUPED_BAR_SIZE = 18;
 const BAR_GAP = 3;
 const BAR_CATEGORY_GAP = "8%";
+const DENSE_LABEL_CELL_LIMIT = 12;
 type MaterialSortKey = "materialName" | "category" | "minPrice" | "maxPrice" | "diffAmount" | "diffRate" | "coverage";
 type MaterialSortDirection = "asc" | "desc";
+type FlatCategoryChartRow = {
+  axisKey: string;
+  category: string;
+  supplier: string;
+  supplierShort: string;
+  categoryTick: string;
+  amount: number | null;
+  diffAmount: number;
+  diffRate: number;
+  diffLabel: string;
+  rows: CanonicalBomRow[];
+  fill: string;
+  isSpacer?: boolean;
+};
 
 export function CostDashboard({ comparison, selectedCategory, onInspectRows }: Props) {
   const supplierTotalRows = useMemo(
     () => withDiffMetrics(comparison.supplierTotals, ["totalAmount"]),
     [comparison.supplierTotals]
   );
+  const currentCategorySeriesCount = getVisibleSeriesCount(comparison.activeSuppliers, comparison.categoryComparison);
+  const shouldStackPrimaryCharts =
+    !selectedCategory && comparison.categoryComparison.length * currentCategorySeriesCount > DENSE_LABEL_CELL_LIMIT;
 
   return (
-    <div className="reveal-in grid gap-3">
-      <div className="grid gap-3 xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.18fr)]">
+    <div className="reveal-in grid gap-4">
+      <div
+        className={`grid gap-4 ${
+          shouldStackPrimaryCharts ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.18fr)]"
+        }`}
+      >
         <section className={PANEL_CLASS}>
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-ink">
+              <h2 className="type-panel-title text-ink">
                 {selectedCategory ? `${selectedCategory}供应商报价` : "供应商报价"}
               </h2>
-              <p className="mt-1 text-xs text-slate-500">按当前筛选汇总供应商 BOM 金额</p>
+              <p className="type-caption mt-1 text-slate-500">按当前筛选汇总供应商 BOM 金额</p>
             </div>
-            <span className="text-xs text-slate-500">点击柱子查看来源</span>
+            <span className="type-caption text-slate-500">点击柱子查看来源</span>
           </div>
           <div className={CHART_SHELL_CLASS}>
-            <div className="mb-2 grid gap-2 sm:grid-cols-2">
-              {comparison.supplierTotals.slice(0, 2).map((supplier) => (
+            <div className="mb-2 grid max-h-[132px] gap-2 overflow-auto pr-1 sm:grid-cols-2 2xl:grid-cols-3">
+              {comparison.supplierTotals.map((supplier) => (
                 <button
                   key={supplier.supplierName}
                   type="button"
-                  className={`motion-lift flex items-center justify-between ${SURFACE_RADIUS} border border-slate-200 bg-white px-3 py-2 text-left text-xs active:scale-[0.99]`}
+                  className={`motion-lift flex items-center justify-between ${SURFACE_RADIUS} border border-slate-200/80 bg-white/82 px-3 py-2.5 text-left text-[13px] active:scale-[0.99]`}
                   onClick={() =>
                     onInspectRows(
                       comparison.filteredRows.filter((row) => row.supplierName === supplier.supplierName),
@@ -101,7 +104,7 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
                 </button>
               ))}
             </div>
-            <ChartFrame height={220} minHeight={200} maxHeight={420}>
+            <ChartFrame height={220} minHeight={200} maxHeight={420} minWidth={Math.max(360, supplierTotalRows.length * 92)}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={supplierTotalRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barCategoryGap={BAR_CATEGORY_GAP}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -152,14 +155,14 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
       <section className={PANEL_CLASS}>
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-ink">
+            <h2 className="type-panel-title text-ink">
               {selectedCategory ? `${selectedCategory}物料供应商对比` : "全量物料供应商对比"}
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="type-caption text-slate-500">
               按物料名称完全一致合并，动态支持多家供应商报价列；点击任意行查看来源明细。
             </p>
           </div>
-          <span className="text-xs text-slate-500">{comparison.materialComparisons.length} 个物料</span>
+          <span className="type-caption text-slate-500">{comparison.materialComparisons.length} 个物料</span>
         </div>
         <MaterialComparisonTable comparison={comparison} selectedCategory={selectedCategory} onInspectRows={onInspectRows} />
       </section>
@@ -178,16 +181,16 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-ink">总成本对比</h2>
-          <p className="text-xs text-slate-500">
+          <h2 className="type-panel-title text-ink">总成本对比</h2>
+          <p className="type-caption text-slate-500">
             {selectedCategory ? `当前筛选品类：${selectedCategory}，总成本仍按供应商 BOM 口径核验` : "材料、人工/管理/利润与出厂价的供应商横向对比"}
           </p>
         </div>
-        <span className="text-xs text-slate-500">悬停查看差值，点击柱子查看来源</span>
+        <span className="type-caption text-slate-500">悬停查看差值，点击柱子查看来源</span>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-        <div className={`${CHART_SHELL_CLASS} overflow-x-auto`}>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+        <div className={CHART_SHELL_CLASS}>
           <ChartFrame height={250} minHeight={220} maxHeight={520} minWidth={Math.max(560, totalRows.length * Math.max(92, comparison.activeSuppliers.length * 28))}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barGap={BAR_GAP} barCategoryGap={BAR_CATEGORY_GAP}>
@@ -195,7 +198,6 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
                 <XAxis dataKey="costItem" tick={{ fontSize: 12 }} interval={0} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip content={<DiffTooltip />} />
-                <Legend />
                 {comparison.activeSuppliers.map((supplier, index) => (
                   <Bar
                     key={supplier}
@@ -217,10 +219,11 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
               </BarChart>
             </ResponsiveContainer>
           </ChartFrame>
+          <ChartLegend suppliers={comparison.activeSuppliers} />
         </div>
 
-        <div className={TABLE_SHELL_CLASS}>
-          <table className="min-w-full text-left text-xs">
+        <div className={`${TABLE_SHELL_CLASS} max-w-full overflow-auto`}>
+          <table className="type-table resizable-table min-w-[620px] text-left">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-3 py-2 font-semibold">成本项</th>
@@ -259,18 +262,34 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
 }
 
 function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows }: Props) {
-  const legendRows = buildSharedPieLegendRows(comparison, selectedCategory);
+  const visualRowsBySupplier = useMemo(() => {
+    const groups = new Map<string, CanonicalBomRow[]>();
+    comparison.filteredRows.forEach((row) => {
+      if (!isVisualCostRow(row)) return;
+      const group = groups.get(row.supplierName);
+      if (group) {
+        group.push(row);
+      } else {
+        groups.set(row.supplierName, [row]);
+      }
+    });
+    return groups;
+  }, [comparison.filteredRows]);
+  const legendRows = useMemo(
+    () => buildSharedPieLegendRows(comparison.activeSuppliers, visualRowsBySupplier, selectedCategory),
+    [comparison.activeSuppliers, selectedCategory, visualRowsBySupplier]
+  );
 
   return (
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-ink">供应商成本结构占比</h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <h2 className="type-panel-title text-ink">供应商成本结构占比</h2>
+          <p className="type-caption mt-1 text-slate-500">
             {selectedCategory ? `按供应商查看 ${selectedCategory} 下物料金额占比` : "按供应商分别查看各品类占总成本比例"}
           </p>
         </div>
-        <span className={`${SURFACE_RADIUS} bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200`}>
+        <span className={`type-caption ${SURFACE_RADIUS} bg-slate-50/80 px-2 py-1 font-semibold text-slate-500 ring-1 ring-slate-200/80`}>
           {comparison.activeSuppliers.length} 家供应商
         </span>
       </div>
@@ -288,7 +307,7 @@ function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows
           <SupplierPieCard
             key={supplier}
             supplier={supplier}
-            comparison={comparison}
+            rows={visualRowsBySupplier.get(supplier) ?? []}
             selectedCategory={selectedCategory}
             onInspectRows={onInspectRows}
           />
@@ -301,24 +320,24 @@ function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows
 
 function SupplierPieCard({
   supplier,
-  comparison,
+  rows,
   selectedCategory,
   onInspectRows
-}: Props & { supplier: string }) {
-  const supplierRows = comparison.filteredRows.filter((row) => row.supplierName === supplier && isVisualCostRow(row));
-  const pieRows = selectedCategory
-    ? buildSupplierMaterialPieRows(supplierRows)
-    : buildSupplierCategoryPieRows(supplierRows);
-  const total = pieRows.reduce((sum, item) => sum + item.value, 0);
+}: Pick<Props, "selectedCategory" | "onInspectRows"> & { supplier: string; rows: CanonicalBomRow[] }) {
+  const pieRows = useMemo(
+    () => (selectedCategory ? buildSupplierMaterialPieRows(rows) : buildSupplierCategoryPieRows(rows)),
+    [rows, selectedCategory]
+  );
+  const total = useMemo(() => pieRows.reduce((sum, item) => sum + item.value, 0), [pieRows]);
 
   return (
     <div className={CHART_SHELL_CLASS}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-ink">{supplier}</h3>
-          <p className="text-xs text-slate-500">{formatMoney(total)}</p>
+          <h3 className="type-panel-title truncate text-ink">{supplier}</h3>
+          <p className="type-caption text-slate-500">{formatMoney(total)}</p>
         </div>
-        <span className={`${SURFACE_RADIUS} bg-white px-2 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200`}>
+        <span className={`type-caption ${SURFACE_RADIUS} bg-white/82 px-2 py-1 font-semibold text-slate-500 ring-1 ring-slate-200/80`}>
           {pieRows.length} 项
         </span>
       </div>
@@ -341,6 +360,8 @@ function SupplierPieCard({
               innerRadius={42}
               outerRadius={74}
               paddingAngle={2}
+              stroke="rgba(255,255,255,0.86)"
+              strokeWidth={2}
               onClick={(data) => {
                 const rows = Array.isArray(data.rows) ? data.rows : [];
                 onInspectRows(rows, `${supplier}成本结构来源：${String(data.name ?? "")}`);
@@ -370,7 +391,7 @@ function SharedPieLegend({
   onSelect: (item: PieLegendRow) => void;
 }) {
   return (
-    <div className="rounded-[20px] bg-white/80 p-2 ring-1 ring-slate-200/80">
+    <div className="rounded-[16px] bg-white/64 p-2 ring-1 ring-slate-200/80">
       <div className="flex max-h-[132px] flex-wrap gap-1.5 overflow-y-auto pr-1">
         {rows.map((item, index) => {
           const color = getPieSliceColor(item.name, index, selectedCategory);
@@ -379,11 +400,11 @@ function SharedPieLegend({
               key={item.name}
               type="button"
               onClick={() => onSelect(item)}
-              className="group inline-flex max-w-[260px] items-center gap-2 rounded-[14px] bg-slate-50 px-2.5 py-1.5 text-left transition hover:bg-white hover:ring-1 hover:ring-slate-200"
+              className="group inline-flex max-w-[260px] items-center gap-2 rounded-[12px] bg-slate-50/82 px-2.5 py-1.5 text-left transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:bg-white hover:ring-1 hover:ring-slate-200"
               title={`${item.name} ${formatMoney(item.value)}`}
             >
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-              <span className="truncate text-xs font-semibold text-slate-600 group-hover:text-ink">{item.name}</span>
+              <span className="palette-swatch h-3 w-5 rounded-[7px]" style={{ backgroundColor: color }} />
+              <span className="type-caption truncate font-semibold text-slate-600 group-hover:text-ink">{item.name}</span>
             </button>
           );
         })}
@@ -392,10 +413,14 @@ function SharedPieLegend({
   );
 }
 
-function buildSharedPieLegendRows(comparison: CostComparison, selectedCategory: string): PieLegendRow[] {
+function buildSharedPieLegendRows(
+  suppliers: string[],
+  rowsBySupplier: Map<string, CanonicalBomRow[]>,
+  selectedCategory: string
+): PieLegendRow[] {
   const groups = new Map<string, PieLegendRow>();
-  comparison.activeSuppliers.forEach((supplier) => {
-    const supplierRows = comparison.filteredRows.filter((row) => row.supplierName === supplier && isVisualCostRow(row));
+  suppliers.forEach((supplier) => {
+    const supplierRows = rowsBySupplier.get(supplier) ?? [];
     const pieRows = selectedCategory ? buildSupplierMaterialPieRows(supplierRows) : buildSupplierCategoryPieRows(supplierRows);
     pieRows.forEach((item) => {
       const current = groups.get(item.name) ?? { name: item.name, value: 0, rows: [] };
@@ -498,93 +523,284 @@ function buildSupplierMaterialPieRows(rows: CanonicalBomRow[]) {
   return compactChartRows(Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value), 10);
 }
 
+function shouldShowDiffLabels(itemCount: number, supplierCount: number) {
+  return itemCount * Math.max(1, supplierCount) <= DENSE_LABEL_CELL_LIMIT;
+}
+
+function getVisibleSeriesCount(suppliers: string[], rows: Record<string, unknown>[]) {
+  const count = suppliers.filter((supplier) =>
+    rows.some((row) => typeof row[supplier] === "number" && Number(row[supplier]) > 0)
+  ).length;
+  return Math.max(1, count);
+}
+
+function getGroupedBarSize(itemCount: number, supplierCount: number) {
+  const density = itemCount * Math.max(1, supplierCount);
+  if (density >= 48) return 10;
+  if (density >= 28) return 12;
+  if (density >= 18) return 14;
+  return GROUPED_BAR_SIZE;
+}
+
+function getBarGap(itemCount: number, supplierCount: number) {
+  return itemCount * Math.max(1, supplierCount) > 28 ? 2 : BAR_GAP;
+}
+
+function getBarCategoryGap(itemCount: number) {
+  if (itemCount >= 12) return "14%";
+  if (itemCount >= 7) return "12%";
+  return BAR_CATEGORY_GAP;
+}
+
+function getGroupedChartHeight(itemCount: number) {
+  if (itemCount >= 12) return 380;
+  if (itemCount >= 7) return 340;
+  return 300;
+}
+
+function getGroupedChartMinWidth(itemCount: number, supplierCount: number, baseWidth: number) {
+  const groupWidth = Math.max(118, supplierCount * 46);
+  return Math.max(baseWidth, itemCount * groupWidth);
+}
+
+function getGroupedChartWidth(itemCount: number, supplierCount: number) {
+  if (itemCount <= 3) return Math.max(420, itemCount * Math.max(138, supplierCount * 58) + 140);
+  return undefined;
+}
+
+function getFlatChartMinWidth(barCount: number, supplierCount: number, baseWidth: number) {
+  const perBar = supplierCount >= 4 ? 28 : supplierCount >= 3 ? 32 : 38;
+  return Math.max(baseWidth, barCount * perBar + 120);
+}
+
+function getFlatBarSize(barCount: number) {
+  if (barCount >= 48) return 10;
+  if (barCount >= 32) return 12;
+  if (barCount >= 20) return 14;
+  return 16;
+}
+
+function getSupplierShortName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "";
+  const compact = trimmed
+    .replace(/\s+/g, "")
+    .replace(/(有限公司|有限责任公司|股份有限公司|集团|公司|工厂|厂|科技|实业|照明|电器|电子|供应链|贸易)$/g, "");
+  const modelMatch = compact.match(/([A-Za-z]*\d[\w.-]*|\d[\w.-]*|[A-Za-z]+\d[\w.-]*)$/);
+  const model = modelMatch?.[0] ?? "";
+  const base = model ? compact.slice(0, -model.length) : compact;
+  const chineseLead = base.match(/[\u4e00-\u9fa5]/)?.[0];
+
+  if (chineseLead) return `${chineseLead}${model}`.slice(0, 8);
+  if (model && base) return `${makeAsciiAbbreviation(base)}${model}`.slice(0, 8);
+  if (/^[A-Za-z0-9_.-]+$/.test(compact)) return compact.length <= 6 ? compact : compact.slice(0, 6);
+
+  return compact.slice(0, 6);
+}
+
+function makeAsciiAbbreviation(value: string) {
+  const words = value.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (words.length > 1) return words.map((word) => word[0]).join("").toUpperCase().slice(0, 3);
+  return value.slice(0, 3).toUpperCase();
+}
+
+function getMaterialDisplayName(materialName: string, rows: CanonicalBomRow[]) {
+  const specs = Array.from(new Set(rows.map((row) => row.spec.trim()).filter(Boolean))).sort((a, b) => b.length - a.length);
+  let name = materialName.trim();
+  specs.forEach((spec) => {
+    if (spec.length >= 2) name = name.replace(spec, "");
+  });
+
+  name = name
+    .replace(/[（(][^）)]*(mm|cm|m\b|w\b|v\b|k\b|pcs|pc|abs|pet|pe|po|色|白|黑|金|银|透明|磨砂)[^）)]*[）)]/gi, "")
+    .replace(/[-_/｜|]?\s*(\d+(\.\d+)?\s*(mm|cm|m|w|v|k|pcs)|dc\s*\d+(\.\d+)?|ac\s*\d+(\.\d+)?|[a-z]*\d+[a-z0-9.-]*|白色|黑色|金色|银色|透明|磨砂).*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return name || materialName;
+}
+
+function buildFlatCategoryChartRows(comparison: CostComparison): FlatCategoryChartRow[] {
+  return comparison.categoryComparison.flatMap((categoryRow, categoryIndex) => {
+    const values = comparison.activeSuppliers
+      .map((supplier, supplierIndex) => ({
+        supplier,
+        supplierIndex,
+        value: Number(categoryRow[supplier] ?? 0)
+      }))
+      .filter((point) => point.value > 0);
+    const min = values.length ? Math.min(...values.map((point) => point.value)) : 0;
+    const middleIndex = Math.floor(Math.max(0, values.length - 1) / 2);
+    const category = categoryRow.category;
+
+    const rows: FlatCategoryChartRow[] = values.map((point, visibleIndex) => {
+      const diffAmount = min > 0 ? point.value - min : 0;
+      const diffRate = min > 0 ? diffAmount / min : 0;
+      const supplierShort = getSupplierShortName(point.supplier);
+      const categoryTick = visibleIndex === middleIndex ? category : "";
+
+      return {
+        axisKey: `${categoryIndex}-${point.supplierIndex}|||${supplierShort}|||${categoryTick}`,
+        category,
+        supplier: point.supplier,
+        supplierShort,
+        categoryTick,
+        amount: point.value,
+        diffAmount,
+        diffRate,
+        diffLabel: diffAmount > 0 ? `+${formatPercent(diffRate)}` : "",
+        rows: categoryRow.rows.filter((row) => row.supplierName === point.supplier),
+        fill: getCostCategorySeriesColor(category, point.supplierIndex)
+      };
+    });
+
+    if (categoryIndex < comparison.categoryComparison.length - 1 && rows.length > 0) {
+      rows.push({
+        axisKey: `${categoryIndex}-spacer||| |||`,
+        category,
+        supplier: "",
+        supplierShort: "",
+        categoryTick: "",
+        amount: null,
+        diffAmount: 0,
+        diffRate: 0,
+        diffLabel: "",
+        rows: [],
+        fill: "transparent",
+        isSpacer: true
+      });
+    }
+
+    return rows;
+  });
+}
+
 function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCategory">) {
   const chartRows = useMemo(
     () => withDiffMetrics(comparison.categoryComparison, comparison.activeSuppliers),
     [comparison.activeSuppliers, comparison.categoryComparison]
   );
+  const flatChartRows = useMemo(
+    () => buildFlatCategoryChartRows(comparison),
+    [comparison]
+  );
+  const categoryCount = chartRows.length;
+  const supplierCount = getVisibleSeriesCount(comparison.activeSuppliers, chartRows);
+  const showDiffLabels = shouldShowDiffLabels(categoryCount, supplierCount) && flatChartRows.length <= 10;
+  const chartHeight = getGroupedChartHeight(categoryCount) - 18;
+  const chartMinWidth = getFlatChartMinWidth(flatChartRows.length, supplierCount, 680);
+  const chartWidth = flatChartRows.length <= 8 ? Math.max(460, flatChartRows.length * 58 + 120) : undefined;
 
   return (
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-ink">品类成本对比</h2>
-          <p className="mt-1 text-xs text-slate-500">用于快速定位成本结构差异</p>
+          <h2 className="type-panel-title text-ink">品类成本对比</h2>
+          <p className="type-caption mt-1 text-slate-500">用于快速定位成本结构差异</p>
         </div>
-        <span className="text-xs text-slate-500">横坐标为品类，柱子为供应商</span>
+        <span className="type-caption text-slate-500">横坐标为品类，柱子为供应商</span>
       </div>
-      <div className={`${CHART_SHELL_CLASS} overflow-x-auto`}>
-        <ChartFrame height={270} minHeight={230} maxHeight={560} minWidth={Math.max(620, comparison.categoryComparison.length * Math.max(82, comparison.activeSuppliers.length * 28))}>
+      <div className={CHART_SHELL_CLASS}>
+        <ChartFrame height={chartHeight} minHeight={260} maxHeight={620} minWidth={chartWidth ? undefined : chartMinWidth} width={chartWidth}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barGap={BAR_GAP} barCategoryGap={BAR_CATEGORY_GAP}>
+          <BarChart
+            data={flatChartRows}
+            margin={{ top: showDiffLabels ? 20 : 10, right: 12, left: 0, bottom: 0 }}
+            barCategoryGap="18%"
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="category" tick={{ fontSize: 12 }} interval={0} angle={-18} textAnchor="end" height={72} />
+            <XAxis
+              dataKey="axisKey"
+              tick={<GroupedAxisTick />}
+              interval={0}
+              height={58}
+            />
             <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip content={<DiffTooltip />} />
-            <Legend />
-            {comparison.activeSuppliers.map((supplier, index) => (
-              <Bar
-                key={supplier}
-                dataKey={supplier}
-                fill={getSupplierColor(supplier, index)}
-                name={supplier}
-                radius={BAR_RADIUS}
-                barSize={GROUPED_BAR_SIZE}
-                maxBarSize={GROUPED_BAR_SIZE}
-                cursor="pointer"
-                onClick={(data) => {
-                  const category = String(data.category ?? "");
-                  onInspectRows(
-                    comparison.filteredRows.filter(
-                      (row) => row.supplierName === supplier && normalizeCostCategory(row.category, row.materialName) === category
-                    ),
-                    `品类成本来源：${category} / ${supplier}`
-                  );
-                }}
-              >
-                <LabelList dataKey={`${supplier}DiffLabel`} position="top" className="fill-slate-500 text-[10px] font-semibold" />
-              </Bar>
-            ))}
+            <Tooltip content={<FlatCategoryTooltip />} />
+            <Bar
+              dataKey="amount"
+              name="品类金额"
+              radius={BAR_RADIUS}
+              barSize={getFlatBarSize(flatChartRows.length)}
+              maxBarSize={22}
+              cursor="pointer"
+              onClick={(data) => {
+                const row = data as FlatCategoryChartRow;
+                if (row.isSpacer) return;
+                onInspectRows(row.rows, `品类成本来源：${row.category} / ${row.supplier}`);
+              }}
+            >
+              {flatChartRows.map((row) => (
+                <Cell key={row.axisKey} fill={row.fill} />
+              ))}
+              {showDiffLabels && (
+                <LabelList dataKey="diffLabel" position="top" className="fill-slate-500 text-[10px] font-semibold" />
+              )}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
         </ChartFrame>
       </div>
+      {!showDiffLabels && (
+        <p className="mt-2 type-caption text-slate-500">品类或供应商较多时已收起柱顶差异数字，悬停柱子可查看差值和百分比。</p>
+      )}
     </section>
   );
 }
 
 function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
   const maxChartItems = 24;
-  const chartRows = withDiffMetrics(comparison.materialComparisons.slice(0, maxChartItems).map((item) => {
-    const result: Record<string, string | number | CanonicalBomRow[]> = {
-      materialName: item.materialName,
-      productName: item.productName,
-      rows: item.rows
-    };
-    comparison.activeSuppliers.forEach((supplier) => {
-      result[supplier] = item.suppliers.find((entry) => entry.supplierName === supplier)?.unitPrice ?? 0;
-    });
-    return result;
-  }), comparison.activeSuppliers);
+  const chartRows = useMemo(
+    () =>
+      withDiffMetrics(
+        comparison.materialComparisons.slice(0, maxChartItems).map((item) => {
+          const pointBySupplier = new Map(item.suppliers.map((entry) => [entry.supplierName, entry.unitPrice]));
+          const result: Record<string, string | number | CanonicalBomRow[]> = {
+            materialName: item.materialName,
+            displayMaterialName: getMaterialDisplayName(item.materialName, item.rows),
+            productName: item.productName,
+            category: item.category,
+            rows: item.rows
+          };
+          comparison.activeSuppliers.forEach((supplier) => {
+            result[supplier] = pointBySupplier.get(supplier) ?? 0;
+          });
+          return result;
+        }),
+        comparison.activeSuppliers
+      ),
+    [comparison.activeSuppliers, comparison.materialComparisons]
+  );
+  const materialCount = chartRows.length;
+  const supplierCount = getVisibleSeriesCount(comparison.activeSuppliers, chartRows);
+  const showDiffLabels = shouldShowDiffLabels(materialCount, supplierCount);
+  const barSize = getGroupedBarSize(materialCount, supplierCount);
+  const chartHeight = getGroupedChartHeight(materialCount);
+  const chartMinWidth = getGroupedChartMinWidth(materialCount, supplierCount, 760);
+  const chartWidth = getGroupedChartWidth(materialCount, supplierCount);
 
   return (
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-ink">{selectedCategory}物料单价对比</h2>
-          <p className="mt-1 text-xs text-slate-500">筛选品类后按物料逐项比较供应商单价</p>
+          <h2 className="type-panel-title text-ink">{selectedCategory}物料单价对比</h2>
+          <p className="type-caption mt-1 text-slate-500">筛选品类后按物料逐项比较供应商单价</p>
         </div>
-        <span className="text-xs text-slate-500">横坐标为物料，柱子为供应商</span>
+        <span className="type-caption text-slate-500">横坐标为物料，柱子为供应商</span>
       </div>
-      <div className={`${CHART_SHELL_CLASS} overflow-x-auto`}>
-        <ChartFrame height={300} minHeight={250} maxHeight={620} minWidth={Math.max(680, chartRows.length * Math.max(88, comparison.activeSuppliers.length * 28))}>
+      <div className={CHART_SHELL_CLASS}>
+        <ChartFrame height={chartHeight} minHeight={280} maxHeight={660} minWidth={chartWidth ? undefined : chartMinWidth} width={chartWidth}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barGap={BAR_GAP} barCategoryGap={BAR_CATEGORY_GAP}>
+          <BarChart
+            data={chartRows}
+            margin={{ top: showDiffLabels ? 22 : 12, right: 16, left: 0, bottom: 0 }}
+            barGap={getBarGap(materialCount, supplierCount)}
+            barCategoryGap={getBarCategoryGap(materialCount)}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="materialName" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={70} />
+            <XAxis dataKey="displayMaterialName" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={70} />
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip content={<DiffTooltip />} />
-            <Legend />
             {comparison.activeSuppliers.map((supplier, index) => (
               <Bar
                 key={supplier}
@@ -592,8 +808,8 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
                 fill={getSupplierColor(supplier, index)}
                 name={supplier}
                 radius={BAR_RADIUS}
-                barSize={GROUPED_BAR_SIZE}
-                maxBarSize={GROUPED_BAR_SIZE}
+                barSize={barSize}
+                maxBarSize={barSize}
                 cursor="pointer"
                 onClick={(data) => {
                   const rows = Array.isArray(data.rows) ? data.rows : [];
@@ -602,13 +818,27 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
                   onInspectRows(rows, `${selectedCategory}物料来源：${productName} / ${materialName}`);
                 }}
               >
-                <LabelList dataKey={`${supplier}DiffLabel`} position="top" className="fill-slate-500 text-[10px] font-semibold" />
+                {chartRows.map((row) => (
+                  <Cell
+                    key={`${supplier}-${String(row.materialName)}`}
+                    fill={getSupplierColor(supplier, index)}
+                  />
+                ))}
+                {showDiffLabels && (
+                  <LabelList dataKey={`${supplier}DiffLabel`} position="top" className="fill-slate-500 text-[10px] font-semibold" />
+                )}
               </Bar>
             ))}
           </BarChart>
         </ResponsiveContainer>
         </ChartFrame>
+        <ChartLegend
+          suppliers={comparison.activeSuppliers}
+        />
       </div>
+      {!showDiffLabels && (
+        <p className="mt-2 type-caption text-slate-500">物料数量较多时已收起柱顶差异数字，悬停柱子可查看差值和百分比。</p>
+      )}
       {comparison.materialComparisons.length > chartRows.length && (
         <p className="mt-2 text-xs text-slate-500">图表显示差异最大的前 {maxChartItems} 个物料，完整物料仍在下方表格中。</p>
       )}
@@ -637,8 +867,11 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
   }
 
   return (
-    <div className={`max-h-[500px] overflow-auto ${TABLE_SHELL_CLASS}`}>
-      <table className="min-w-full text-left text-sm">
+    <div className={`max-h-[560px] max-w-full overflow-auto ${TABLE_SHELL_CLASS}`}>
+      <table
+        className="type-table resizable-table text-left"
+        style={{ minWidth: Math.max(1120, suppliers.length * 128 + 760) }}
+      >
         <thead className="sticky top-0 bg-white/95 text-xs text-slate-600 shadow-sm">
           <tr>
             <th className="whitespace-nowrap px-3 py-2 font-semibold">产品</th>
@@ -663,7 +896,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
             return (
               <tr
                 key={item.id}
-                className="cursor-pointer border-b border-slate-100 odd:bg-white even:bg-slate-50/50 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-blue-50/70"
+                className="cursor-pointer border-b border-slate-100 odd:bg-white/90 even:bg-slate-50/58 transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-emerald-50/70"
                 onClick={() => onInspectRows(item.rows, `物料来源明细：${item.productName} / ${item.materialName}`)}
               >
                 <td className="whitespace-nowrap px-3 py-2 text-slate-600">{item.productName}</td>
@@ -713,25 +946,105 @@ function ChartFrame({
   height,
   minHeight,
   maxHeight,
-  minWidth
+  minWidth,
+  width
 }: {
   children: ReactNode;
   height: number;
   minHeight: number;
   maxHeight: number;
   minWidth?: number;
+  width?: number | string;
 }) {
   return (
     <div
-      className="overflow-auto"
-      style={{
-        height,
-        minHeight,
-        maxHeight,
-        minWidth
-      }}
+      className="chart-inner-scroll w-full"
+      style={{ maxHeight }}
     >
-      {children}
+      <div
+        style={{
+          height,
+          minHeight,
+          minWidth,
+          width: width ?? "100%",
+          maxWidth: width ? "100%" : undefined,
+          marginInline: width ? "auto" : undefined
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ChartLegend({
+  suppliers,
+  colorForSupplier
+}: {
+  suppliers: string[];
+  colorForSupplier?: (supplier: string, index: number) => string;
+}) {
+  if (suppliers.length === 0) return null;
+  return (
+    <div className="pointer-events-auto sticky bottom-0 z-10 mt-2 flex w-full justify-center bg-slate-50/70 px-2 py-1 backdrop-blur-sm">
+      <div className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 rounded-full bg-white/78 px-3 py-1.5 ring-1 ring-slate-200/80">
+        {suppliers.map((supplier, index) => (
+          <span key={supplier} className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+            <span className="h-3 w-5 shrink-0 rounded-[7px]" style={{ backgroundColor: colorForSupplier?.(supplier, index) ?? getSupplierColor(supplier, index) }} />
+            <span className="max-w-[120px] truncate">{supplier}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GroupedAxisTick({
+  x,
+  y,
+  payload
+}: {
+  x?: number;
+  y?: number;
+  payload?: { value?: string };
+}) {
+  const [, supplierShort = "", category = ""] = String(payload?.value ?? "").split("|||");
+  return (
+    <g transform={`translate(${x ?? 0},${y ?? 0})`}>
+      <text x={0} y={12} textAnchor="middle" className="fill-slate-500 text-[10px] font-semibold">
+        {supplierShort}
+      </text>
+      {category && (
+        <text x={0} y={32} textAnchor="middle" className="fill-slate-700 text-[11px] font-bold">
+          {category}
+        </text>
+      )}
+    </g>
+  );
+}
+
+function FlatCategoryTooltip({
+  active,
+  payload
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: FlatCategoryChartRow }>;
+}) {
+  if (!active || !payload?.length || !payload[0].payload) return null;
+  const row = payload[0].payload;
+  if (row.isSpacer || row.amount === null) return null;
+  return (
+    <div className={`${SURFACE_RADIUS} border border-slate-200 bg-white/95 px-3 py-2 text-xs shadow-xl shadow-slate-900/10 backdrop-blur`}>
+      <p className="mb-2 max-w-64 truncate font-semibold text-ink">{row.category}</p>
+      <div className="grid gap-1.5">
+        <div className="flex min-w-44 items-center justify-between gap-3">
+          <span className="font-medium text-slate-600">{row.supplier}</span>
+          <span className="font-semibold text-ink">{formatMoney(row.amount)}</span>
+        </div>
+        <p className={row.diffAmount > 0 ? "text-danger" : "text-slate-400"}>
+          {row.diffAmount > 0 ? `较最低 +${formatMoney(row.diffAmount)} / ${formatPercent(row.diffRate)}` : "当前为该品类最低价"}
+        </p>
+      </div>
     </div>
   );
 }
@@ -812,7 +1125,7 @@ function DiffTooltip({ active, payload, label }: { active?: boolean; payload?: D
 
   return (
     <div className={`${SURFACE_RADIUS} border border-slate-200 bg-white/95 px-3 py-2 text-xs shadow-xl shadow-slate-900/10 backdrop-blur`}>
-      <p className="mb-2 max-w-64 truncate font-semibold text-ink">{label}</p>
+      <p className="mb-2 max-w-64 truncate font-semibold text-ink">{String(row.materialName ?? label ?? "")}</p>
       <div className="grid gap-1.5">
         {visiblePayload.map((item) => {
           const key = String(item.dataKey ?? "");
@@ -861,14 +1174,14 @@ function getSupplierColor(supplier: string, fallbackIndex = 0): string {
 }
 
 function getCategoryColor(category: string, fallbackIndex = 0): string {
-  return CATEGORY_COLORS[category] ?? getStableColor(category, fallbackIndex);
+  return getCostCategoryColor(category, fallbackIndex);
 }
 
 function getPieSliceColor(name: string, fallbackIndex: number, selectedCategory: string): string {
-  return selectedCategory ? getStableColor(name, fallbackIndex) : getCategoryColor(name, fallbackIndex);
+  return selectedCategory ? getCostMaterialColor(name, selectedCategory, fallbackIndex) : getCategoryColor(name, fallbackIndex);
 }
 
-function getStableColor(value: string, fallbackIndex = 0, palette = FALLBACK_COLORS): string {
+function getStableColor(value: string, fallbackIndex = 0, palette = SUPPLIER_COLORS): string {
   const text = value.trim();
   if (!text) return palette[fallbackIndex % palette.length];
   let hash = 0;

@@ -1,14 +1,15 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
 import { BomTable } from "@/components/BomTable";
 import { CostDashboard } from "@/components/CostDashboard";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
 import { ManualAdjustmentBoard } from "@/components/ManualAdjustmentBoard";
 import type { ManualGroup } from "@/components/ManualAdjustmentBoard";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
+import { ResultReport } from "@/components/ResultReport";
 import { parseBomFileInBrowser } from "@/lib/bom/browser-parser";
-import { buildCostComparison, CostFilters } from "@/lib/bom/cost-comparison";
+import { buildCostComparison, CostFilters, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 import { getMaterialPriceComparisons } from "@/lib/bom/material-price";
 import { parseMaterialPriceFile } from "@/lib/bom/price-table-client";
 import { buildTemplateOutputArray } from "@/lib/bom/template-export";
@@ -30,14 +31,15 @@ type DetailSelection = {
   rows: CanonicalBomRow[];
 };
 
-type WorkspaceView = "upload" | "adjust" | "compare" | "details" | "output";
+type WorkspaceView = "upload" | "adjust" | "compare" | "details" | "report" | "output";
 
 const NAV_ITEMS: Array<{ id: WorkspaceView; label: string; eyebrow: string }> = [
   { id: "upload", label: "数据上传", eyebrow: "01" },
   { id: "adjust", label: "手工校准", eyebrow: "02" },
   { id: "compare", label: "报价对比图", eyebrow: "03" },
   { id: "details", label: "数据表与预警", eyebrow: "04" },
-  { id: "output", label: "数据输出", eyebrow: "05" }
+  { id: "report", label: "结果报告", eyebrow: "05" },
+  { id: "output", label: "数据输出", eyebrow: "06" }
 ];
 
 export default function Home() {
@@ -67,12 +69,14 @@ export default function Home() {
   });
   const [outputNameSupplier, setOutputNameSupplier] = useState("");
   const [detailSelection, setDetailSelection] = useState<DetailSelection | null>(null);
+  const [, startFilterTransition] = useTransition();
 
   const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
   const quoteRows = useMemo(() => rows.filter((row) => row.kind === "supplier_quote"), [rows]);
-  const comparison = useMemo(() => buildCostComparison(rows, filters), [rows, filters]);
+  const deferredFilters = useDeferredValue(filters);
+  const comparison = useMemo(() => buildCostComparison(rows, deferredFilters), [rows, deferredFilters]);
   const categoryOptions = useMemo(
-    () => buildCostComparison(rows, { ...filters, category: "" }).categories,
+    () => buildCategoryOptionsForFilters(rows, filters),
     [filters, rows]
   );
   const issueCount = useMemo(
@@ -202,33 +206,42 @@ export default function Home() {
   }
 
   function updateFilter(key: "productName" | "category" | "materialQuery", value: string) {
-    setFilters((current) => ({ ...current, [key]: value }));
-    setDetailSelection(null);
+    startFilterTransition(() => {
+      setFilters((current) => ({ ...current, [key]: value }));
+      setDetailSelection(null);
+    });
   }
 
   function setSupplierChecked(nextSupplierName: string, checked: boolean) {
-    setFilters((current) => {
-      const base = current.supplierNames.length === 0 ? comparison.suppliers : current.supplierNames;
-      const next = checked
-        ? Array.from(new Set([...base, nextSupplierName]))
-        : base.filter((supplier) => supplier !== nextSupplierName);
+    const allSuppliers = comparison.suppliers;
+    startFilterTransition(() => {
+      setFilters((current) => {
+        const base = current.supplierNames.length === 0 ? allSuppliers : current.supplierNames;
+        const next = checked
+          ? Array.from(new Set([...base, nextSupplierName]))
+          : base.filter((supplier) => supplier !== nextSupplierName);
 
-      return {
-        ...current,
-        supplierNames: next.length === comparison.suppliers.length ? [] : next
-      };
+        return {
+          ...current,
+          supplierNames: next.length === allSuppliers.length ? [] : next
+        };
+      });
+      setDetailSelection(null);
     });
-    setDetailSelection(null);
   }
 
   function selectAllSuppliers() {
-    setFilters((current) => ({ ...current, supplierNames: [] }));
-    setDetailSelection(null);
+    startFilterTransition(() => {
+      setFilters((current) => ({ ...current, supplierNames: [] }));
+      setDetailSelection(null);
+    });
   }
 
   function resetFilters() {
-    setFilters({ supplierNames: [], productName: "", category: "", materialQuery: "" });
-    setDetailSelection(null);
+    startFilterTransition(() => {
+      setFilters({ supplierNames: [], productName: "", category: "", materialQuery: "" });
+      setDetailSelection(null);
+    });
   }
 
   async function refreshMarketPrices() {
@@ -298,17 +311,19 @@ export default function Home() {
     );
   }
 
+  const activeNavItem = NAV_ITEMS.find((item) => item.id === activeView) ?? NAV_ITEMS[0];
+
   return (
     <main className="min-h-screen overflow-x-hidden bg-transparent">
-      <div className="mx-auto grid w-full max-w-[1560px] gap-5 px-4 py-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="page-shell mx-auto grid w-full max-w-[1540px] gap-4 px-3 py-3 sm:px-4 sm:py-4 lg:grid-cols-[264px_minmax(0,1fr)]">
         <aside className="reveal-in lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
-          <div className="flex h-full flex-col rounded-[22px] bg-white/86 p-3 shadow-[0_26px_80px_rgba(15,23,42,0.10)] ring-1 ring-white/80">
-            <div className="rounded-[22px] bg-slate-950 p-5 text-white">
-              <div className="mb-8 inline-flex rounded-[22px] bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80">
+          <div className="sidebar-shell flex h-full flex-col rounded-[24px] p-3">
+            <div className="brand-panel rounded-[20px] p-5 text-white">
+              <div className="type-micro mb-7 inline-flex rounded-[10px] bg-white/10 px-2.5 py-1 text-white/76">
                 MVP 半自动
               </div>
-              <h1 className="text-2xl font-semibold leading-tight tracking-normal">AI 成本核验平台</h1>
-              <p className="mt-3 text-sm leading-6 text-white/62">多供应商 BOM 报价核验工作台</p>
+              <h1 className="type-brand-title text-balance">AI 成本核验平台</h1>
+              <p className="type-body mt-3 text-white/62">多供应商 BOM 报价核验工作台</p>
             </div>
 
             <nav className="mt-3 grid gap-1" aria-label="工作流导航">
@@ -319,15 +334,16 @@ export default function Home() {
                     key={item.id}
                     type="button"
                     onClick={() => setActiveView(item.id)}
-                    className={`group flex items-center justify-between rounded-[22px] px-4 py-3 text-left transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.99] ${
-                      active ? "bg-slate-950 text-white shadow-[0_16px_34px_rgba(15,23,42,0.18)]" : "text-slate-600 hover:bg-slate-100"
+                    data-active={active}
+                    className={`nav-row group flex cursor-pointer items-center justify-between rounded-[16px] px-4 py-3 pl-5 text-left transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.99] ${
+                      active ? "bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)]" : "text-slate-600 hover:bg-white/88 hover:text-slate-950"
                     }`}
                   >
                     <span className="flex items-center gap-3">
-                      <span className={`text-[11px] font-semibold ${active ? "text-white/50" : "text-slate-400"}`}>{item.eyebrow}</span>
-                      <span className="text-sm font-semibold">{item.label}</span>
+                      <span className={`type-micro ${active ? "text-white/50" : "text-slate-400"}`}>{item.eyebrow}</span>
+                      <span className="type-nav">{item.label}</span>
                     </span>
-                    <span className={`h-2 w-2 rounded-[22px] ${active ? "bg-white" : "bg-slate-300 group-hover:bg-slate-500"}`} />
+                    <span className={`h-2 w-2 rounded-full ${active ? "bg-sky-300" : "bg-slate-300 group-hover:bg-slate-500"}`} />
                   </button>
                 );
               })}
@@ -342,35 +358,39 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className="grid min-w-0 gap-5">
-          <header className="reveal-in app-surface overflow-hidden rounded-[22px] p-5">
-            <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-end">
+        <section className="grid min-w-0 max-w-full auto-rows-max content-start gap-4 overflow-hidden">
+          <header className="page-header reveal-in h-fit min-h-0 overflow-hidden rounded-[22px] px-4 py-3">
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
               <div>
                 {activeView !== "upload" && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-accent">
-                      <span className="status-pulse mr-2 inline-block h-2 w-2 rounded-[22px] bg-accent text-accent" />
+                  <div className="type-caption flex flex-wrap items-center gap-2">
+                    <span className="rounded-[12px] border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-accent">
+                      <span className="status-pulse mr-2 inline-block h-2 w-2 rounded-full bg-accent text-accent" />
                       本地运行中
                     </span>
-                    <span className="rounded-[22px] border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
+                    <span className="rounded-[12px] border border-slate-200 bg-white/70 px-3 py-1 font-semibold text-slate-600">
                       {selectedSupplierLabel}
                     </span>
-                    <span className="rounded-[22px] border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
+                    <span className="rounded-[12px] border border-slate-200 bg-white/70 px-3 py-1 font-semibold text-slate-600">
                       {filters.productName || "全部产品"}
                     </span>
-                    <span className="rounded-[22px] border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-600">
+                    <span className="rounded-[12px] border border-slate-200 bg-white/70 px-3 py-1 font-semibold text-slate-600">
                       {filters.category || "全部品类"}
                     </span>
                   </div>
                 )}
-                <h2 className={`${activeView === "upload" ? "" : "mt-4"} text-3xl font-semibold tracking-normal text-ink md:text-4xl`}>
-                  {NAV_ITEMS.find((item) => item.id === activeView)?.label}
+                <h2
+                  className={`type-page-title text-ink ${
+                    activeView === "upload" ? "" : "mt-2"
+                  }`}
+                >
+                  {activeNavItem.label}
                 </h2>
               </div>
-              <div className="grid grid-cols-3 overflow-hidden rounded-[22px] bg-slate-50 text-center text-xs text-slate-500 ring-1 ring-slate-200">
-                <MetricCell label="文件" value={records.length.toString()} />
-                <MetricCell label="可比物料" value={comparison.materialComparisons.length.toString()} />
-                <MetricCell label="异常" value={issueCount.toString()} tone={issueCount > 0 ? "danger" : "normal"} />
+              <div className="type-caption grid grid-cols-3 gap-2 text-center text-slate-500">
+                <MetricCell compact={activeView === "upload"} label="文件" value={records.length.toString()} />
+                <MetricCell compact={activeView === "upload"} label="可比物料" value={comparison.materialComparisons.length.toString()} />
+                <MetricCell compact={activeView === "upload"} label="异常" value={issueCount.toString()} tone={issueCount > 0 ? "danger" : "normal"} />
               </div>
             </div>
           </header>
@@ -452,7 +472,7 @@ export default function Home() {
                 onClearUploadedPrices={clearUploadedPrices}
                 onRefresh={refreshMarketPrices}
               />
-              <section className="app-surface reveal-in rounded-[28px] p-4">
+              <section className="app-surface reveal-in min-w-0 max-w-full overflow-hidden rounded-[22px] p-4">
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前对比明细"}</h3>
@@ -461,7 +481,7 @@ export default function Home() {
                   {detailSelection && (
                     <button
                       onClick={() => setDetailSelection(null)}
-                      className="motion-lift rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 active:scale-[0.98]"
+                      className="button-secondary motion-lift rounded-[12px] px-4 py-2 text-sm font-semibold active:scale-[0.98]"
                     >
                       返回筛选明细
                     </button>
@@ -472,16 +492,38 @@ export default function Home() {
             </>
           )}
 
+          {activeView === "report" && (
+            <>
+              <FilterPanel
+                categoryOptions={categoryOptions}
+                comparison={comparison}
+                filters={filters}
+                onReset={resetFilters}
+                onSelectAllSuppliers={selectAllSuppliers}
+                onSupplierChecked={setSupplierChecked}
+                onUpdateFilter={updateFilter}
+              />
+              <ResultReport
+                comparison={comparison}
+                selectedCategory={filters.category}
+                onInspectRows={(selectedRows, title) => {
+                  setDetailSelection({ rows: selectedRows, title });
+                  setActiveView("details");
+                }}
+              />
+            </>
+          )}
+
           {activeView === "output" && (
-            <section className="reveal-in grid gap-4">
-              <div className="app-surface rounded-[28px] p-4">
+            <section className="reveal-in grid min-w-0 max-w-full gap-4 overflow-hidden">
+              <div className="app-surface rounded-[20px] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-ink">输出文件</h3>
                     <p className="text-xs text-slate-500">整合表用于供应商横向核价，明细表用于原始数据追溯。</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+                    <label className="field-shell flex items-center gap-2 rounded-[14px] px-3 py-2 text-xs font-semibold text-slate-600">
                       输出命名
                       <select
                         value={outputNameSupplier}
@@ -499,21 +541,21 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={exportTemplateExcel}
-                      className="motion-lift rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white active:scale-[0.98]"
+                      className="button-primary motion-lift rounded-[14px] px-5 py-2 text-sm font-semibold active:scale-[0.98]"
                     >
                       按模板导出 Excel
                     </button>
                     <button
                       type="button"
                       onClick={exportComparisonCsv}
-                      className="motion-lift rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 active:scale-[0.98]"
+                      className="button-secondary motion-lift rounded-[14px] px-5 py-2 text-sm font-semibold active:scale-[0.98]"
                     >
                       导出整合成本表
                     </button>
                     <button
                       type="button"
                       onClick={exportRawCsv}
-                      className="motion-lift rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 active:scale-[0.98]"
+                      className="button-secondary motion-lift rounded-[14px] px-5 py-2 text-sm font-semibold active:scale-[0.98]"
                     >
                       导出明细数据
                     </button>
@@ -628,6 +670,24 @@ function reconcileFilters(filters: CostFilters, records: BomFileRecord[]): CostF
   };
 }
 
+function buildCategoryOptionsForFilters(rows: CanonicalBomRow[], filters: CostFilters): string[] {
+  const query = filters.materialQuery.trim().toLowerCase();
+  const categories = new Set<string>();
+
+  rows.forEach((row) => {
+    if (row.kind !== "supplier_quote") return;
+    if (filters.supplierNames.length > 0 && !filters.supplierNames.includes(row.supplierName)) return;
+    if (filters.productName && row.productName !== filters.productName) return;
+    if (query) {
+      const materialText = `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec}`.toLowerCase();
+      if (!materialText.includes(query)) return;
+    }
+    categories.add(normalizeCostCategory(row.category, row.materialName));
+  });
+
+  return Array.from(categories).sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
 function mergePendingFiles(current: File[], incoming: File[]): File[] {
   const bySignature = new Map(current.map((file) => [getFileSourceSignature(file), file]));
   incoming.forEach((file) => bySignature.set(getFileSourceSignature(file), file));
@@ -682,15 +742,15 @@ function UploadView({
       : "历史 BOM 会作为后续价格参考库来源，暂不参与当前供应商报价排名。";
 
   return (
-    <section className="reveal-in grid w-full gap-4 2xl:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="app-surface rounded-[22px] p-4 2xl:col-span-2">
+    <section className="reveal-in grid w-full gap-4 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_390px]">
+      <section className="quiet-surface rounded-[20px] p-4 xl:col-span-2">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="inline-flex rounded-[12px] bg-slate-950 px-3 py-1 text-[11px] font-semibold text-white">
+            <div className="type-micro inline-flex rounded-[10px] bg-slate-950 px-3 py-1 text-white">
               开始前
             </div>
-            <h3 className="mt-2 text-lg font-semibold text-ink">先下载标准模板，或查看 BOM 核验流程</h3>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
+            <h3 className="type-section-title mt-2 text-ink">先下载标准模板，或查看 BOM 核验流程</h3>
+            <p className="type-body mt-1 text-slate-500">
               下载文件只包含供应商需要填写的输入工作表；输出格式由平台按模板结构自动生成。
             </p>
           </div>
@@ -698,14 +758,14 @@ function UploadView({
             <button
               type="button"
               onClick={() => setIsGuideOpen(true)}
-              className="motion-lift rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white active:scale-[0.98]"
+              className="button-primary motion-lift rounded-[14px] px-5 py-3 text-sm font-semibold active:scale-[0.98]"
             >
               查看使用手册
             </button>
             <a
               href="/templates/bom-input-output-template.xlsx"
               download="BOM输入模板2.0.xlsx"
-              className="motion-lift rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 active:scale-[0.98]"
+              className="button-secondary motion-lift rounded-[14px] px-5 py-3 text-sm font-semibold active:scale-[0.98]"
             >
               获取 BOM 表输入模板
             </a>
@@ -713,48 +773,48 @@ function UploadView({
         </div>
         {isGuideOpen && <UserGuideModal onClose={() => setIsGuideOpen(false)} />}
       </section>
-      <form onSubmit={onSubmit} className="app-surface rounded-[22px] p-5">
+      <form onSubmit={onSubmit} className="app-surface rounded-[20px] p-4">
         <div className="grid gap-4 lg:grid-cols-3">
           <label className="block">
-            <span className="text-xs font-semibold text-slate-500">上传批次 / 归档名（可选）</span>
+            <span className="type-caption font-semibold text-slate-500">上传批次 / 归档名（可选）</span>
             <input
               value={productName}
               onChange={(event) => onProductNameChange(event.target.value)}
-              className="mt-2 h-11 w-full rounded-[14px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+              className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
               placeholder="例如：7月供应商报价汇总；可留空"
             />
-            <p className="mt-2 text-[11px] leading-5 text-slate-500">
+            <p className="type-caption mt-2 text-slate-500">
               只用于归档本次上传，不作为物料匹配的硬条件；真实供应商、产品、型号、颜色会优先从模板标题识别。
             </p>
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold text-slate-500">供应商</span>
+            <span className="type-caption font-semibold text-slate-500">供应商</span>
             <input
               value={supplierName}
               onChange={(event) => onSupplierNameChange(event.target.value)}
-              className="mt-2 h-11 w-full rounded-[14px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+              className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
               placeholder="留空从文件名识别"
             />
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold text-slate-500">文件类型</span>
+            <span className="type-caption font-semibold text-slate-500">文件类型</span>
             <select
               value={kind}
               onChange={(event) => onKindChange(event.target.value as BomFileKind)}
-              className="mt-2 h-11 w-full rounded-[14px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+              className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
             >
               <option value="supplier_quote">供应商报价</option>
               <option value="historical_bom">历史 BOM</option>
             </select>
-            <p className="mt-2 text-[11px] leading-5 text-slate-500">{kindHelp}</p>
+            <p className="type-caption mt-2 text-slate-500">{kindHelp}</p>
           </label>
         </div>
 
-        <label className="mt-4 block rounded-[22px] border border-dashed border-slate-300 bg-slate-50/80 p-6 transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-slate-500 hover:bg-white">
-          <span className="text-sm font-semibold text-ink">Excel / CSV 文件</span>
-          <span className="ml-2 text-xs text-slate-500">可一次选择多个供应商文件</span>
+        <label className="mt-4 block rounded-[18px] border border-dashed border-slate-300 bg-slate-50/72 p-6 transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-slate-500 hover:bg-white/84">
+          <span className="type-panel-title text-ink">Excel / CSV 文件</span>
+          <span className="type-caption ml-2 text-slate-500">可一次选择多个供应商文件</span>
           <input
             type="file"
             multiple
@@ -763,14 +823,14 @@ function UploadView({
               onFilesChange(mergePendingFiles(files, Array.from(event.target.files ?? [])));
               event.currentTarget.value = "";
             }}
-            className="mt-4 w-full rounded-[14px] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:text-xs file:font-semibold file:text-white"
+            className="field-shell mt-4 w-full rounded-[14px] px-3 py-2 text-[13px] file:mr-3 file:rounded-[12px] file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:text-xs file:font-semibold file:text-white"
           />
-          <div className="mt-4 grid min-h-6 gap-2 text-xs text-slate-500 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="type-caption mt-4 grid min-h-6 gap-2 text-slate-500 sm:grid-cols-2 xl:grid-cols-3">
             {files.length > 0 ? (
               files.map((file) => (
                 <span
                   key={getFileSourceSignature(file)}
-                  className="inline-flex min-w-0 items-center justify-between gap-2 rounded-[16px] bg-white px-3 py-2 ring-1 ring-slate-200"
+                  className="inline-flex min-w-0 items-center justify-between gap-2 rounded-[14px] bg-white/84 px-3 py-2 ring-1 ring-slate-200"
                 >
                   <span className="truncate">{file.name}</span>
                   <button
@@ -781,7 +841,7 @@ function UploadView({
                       event.stopPropagation();
                       onFilesChange(files.filter((item) => getFileSourceSignature(item) !== getFileSourceSignature(file)));
                     }}
-                    className="grid h-5 w-5 shrink-0 place-items-center rounded-[12px] text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-[10px] text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                   >
                     ×
                   </button>
@@ -796,16 +856,9 @@ function UploadView({
         <div className="mt-5 flex flex-wrap gap-2">
           <button
             disabled={isUploading}
-            className="motion-lift rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="button-primary motion-lift rounded-[14px] px-6 py-3 text-sm font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isUploading ? "解析中..." : "上传解析"}
-          </button>
-          <button
-            type="button"
-            onClick={onClear}
-            className="motion-lift rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 active:scale-[0.98]"
-          >
-            清空
           </button>
         </div>
 
@@ -823,14 +876,24 @@ function UploadView({
         )}
       </form>
 
-      <div className="app-surface rounded-[22px] p-5">
+      <div className="app-surface rounded-[20px] p-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-ink">解析记录</h3>
-          <span className="text-xs text-slate-500">{records.length} 个文件</span>
+          <div>
+            <h3 className="type-panel-title text-ink">解析记录</h3>
+            <span className="type-caption text-slate-500">{records.length} 个文件</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={records.length === 0 && files.length === 0}
+            className="button-secondary motion-lift rounded-[12px] px-4 py-2 text-xs font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            清空记录
+          </button>
         </div>
         <div className="mt-4 grid max-h-[520px] gap-2 overflow-y-auto pr-1">
           {records.map((record) => (
-            <div key={record.id} className="relative rounded-[18px] bg-slate-50 p-3 pr-10 ring-1 ring-slate-200">
+            <div key={record.id} className="relative rounded-[16px] bg-slate-50/82 p-3 pr-10 ring-1 ring-slate-200/80">
               <button
                 type="button"
                 aria-label={`删除 ${record.fileName}`}
@@ -958,28 +1021,28 @@ function FilterPanel({
   onUpdateFilter: (key: "productName" | "category" | "materialQuery", value: string) => void;
 }) {
   return (
-    <section className="app-surface reveal-in rounded-[22px] p-4">
-      <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_2fr_auto]">
-        <div className="block">
+    <section className="page-header reveal-in min-w-0 max-w-full overflow-hidden rounded-[20px] p-4">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(220px,1.2fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(220px,2fr)_auto]">
+        <div className="block min-w-0">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-semibold text-slate-500">供应商筛选</span>
-            <button type="button" onClick={onSelectAllSuppliers} className="text-xs font-semibold text-ink hover:text-slate-500">
+            <span className="type-caption font-semibold text-slate-500">供应商筛选</span>
+            <button type="button" onClick={onSelectAllSuppliers} className="type-caption font-semibold text-ink hover:text-slate-500">
               全部
             </button>
           </div>
-          <div className="mt-2 flex min-h-11 flex-wrap items-center gap-2 rounded-[22px] bg-slate-50 p-1.5 ring-1 ring-slate-200">
+          <div className="mt-2 flex min-h-11 max-w-full flex-wrap items-center gap-2 overflow-auto rounded-[16px] bg-slate-50/74 p-1.5 ring-1 ring-slate-200/80">
             {comparison.suppliers.map((supplier) => {
               const checked = filters.supplierNames.length === 0 || filters.supplierNames.includes(supplier);
               return (
-                <label key={supplier} className="group cursor-pointer text-sm text-slate-700">
+                <label key={supplier} className="group cursor-pointer text-[13px] text-slate-700">
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={(event) => onSupplierChecked(supplier, event.target.checked)}
                     className="peer sr-only"
                   />
-                  <span className="motion-lift inline-flex items-center gap-2 rounded-[22px] bg-white px-3 py-2 font-semibold ring-1 ring-slate-200 peer-checked:bg-slate-950 peer-checked:text-white peer-checked:ring-slate-950">
-                    <span className={`h-1.5 w-1.5 rounded-[22px] ${checked ? "bg-white" : "bg-slate-300"}`} />
+                  <span className="motion-lift inline-flex items-center gap-2 rounded-[12px] bg-white/84 px-3 py-2 font-semibold ring-1 ring-slate-200 peer-checked:bg-slate-950 peer-checked:text-white peer-checked:ring-slate-950">
+                    <span className={`h-1.5 w-1.5 rounded-full ${checked ? "bg-white" : "bg-slate-300"}`} />
                     {supplier}
                   </span>
                 </label>
@@ -989,12 +1052,12 @@ function FilterPanel({
           </div>
         </div>
 
-        <label className="block">
-          <span className="text-xs font-semibold text-slate-500">产品</span>
+        <label className="block min-w-0">
+          <span className="type-caption font-semibold text-slate-500">产品</span>
           <select
             value={filters.productName}
             onChange={(event) => onUpdateFilter("productName", event.target.value)}
-            className="mt-2 h-11 w-full rounded-[22px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
           >
             <option value="">全部产品</option>
             {comparison.products.map((product) => (
@@ -1005,12 +1068,12 @@ function FilterPanel({
           </select>
         </label>
 
-        <label className="block">
-          <span className="text-xs font-semibold text-slate-500">品类</span>
+        <label className="block min-w-0">
+          <span className="type-caption font-semibold text-slate-500">品类</span>
           <select
             value={filters.category}
             onChange={(event) => onUpdateFilter("category", event.target.value)}
-            className="mt-2 h-11 w-full rounded-[22px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
           >
             <option value="">全部品类</option>
             {categoryOptions.map((category) => (
@@ -1021,12 +1084,12 @@ function FilterPanel({
           </select>
         </label>
 
-        <label className="block">
-          <span className="text-xs font-semibold text-slate-500">搜索物料</span>
+        <label className="block min-w-0">
+          <span className="type-caption font-semibold text-slate-500">搜索物料</span>
           <input
             value={filters.materialQuery}
             onChange={(event) => onUpdateFilter("materialQuery", event.target.value)}
-            className="mt-2 h-11 w-full rounded-[22px] border border-slate-200 bg-white px-4 text-sm outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+            className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
             placeholder="物料名称、标准名或规格"
           />
         </label>
@@ -1034,7 +1097,7 @@ function FilterPanel({
         <button
           type="button"
           onClick={onReset}
-          className="motion-lift mt-6 h-11 rounded-[22px] border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 active:scale-[0.98]"
+          className="button-secondary motion-lift mt-6 h-11 rounded-[14px] px-5 text-sm font-semibold active:scale-[0.98]"
         >
           重置
         </button>
@@ -1045,18 +1108,28 @@ function FilterPanel({
 
 function MiniStat({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "danger" }) {
   return (
-    <div className="rounded-[18px] bg-slate-50 p-3 ring-1 ring-slate-200">
-      <p className="text-[11px] font-semibold text-slate-500">{label}</p>
-      <p className={`mt-1 text-xl font-semibold ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
+    <div className="rounded-[14px] bg-white/68 p-3 ring-1 ring-slate-200/80">
+      <p className="type-micro text-slate-500">{label}</p>
+      <p className={`mt-1 text-[1.35rem] font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
     </div>
   );
 }
 
-function MetricCell({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "danger" }) {
+function MetricCell({
+  label,
+  value,
+  tone = "normal",
+  compact = false
+}: {
+  label: string;
+  value: string;
+  tone?: "normal" | "danger";
+  compact?: boolean;
+}) {
   return (
-    <div className="border-r border-slate-200 p-4 last:border-r-0">
-      <p className={`text-xl font-semibold ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
-      <p>{label}</p>
+    <div className={`metric-strip rounded-[14px] ${compact ? "px-3 py-2" : "px-3.5 py-2.5"}`}>
+      <p className={`${compact ? "text-[1.05rem]" : "text-[1.22rem]"} font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
+      <p className="mt-0.5 font-semibold">{label}</p>
     </div>
   );
 }

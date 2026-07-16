@@ -139,11 +139,11 @@ export function ManualAdjustmentBoard({
   }
 
   return (
-    <section className="reveal-in app-surface rounded-[22px] p-4">
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(430px,0.42fr)] xl:items-end">
+    <section className="reveal-in app-surface rounded-[20px] p-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(430px,0.42fr)] xl:items-end">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-ink">手工校准台</h3>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
+          <h3 className="type-panel-title text-ink">手工校准台</h3>
+          <p className="type-caption mt-1 max-w-3xl text-slate-500">
             左侧按供应商检查物料，右侧固定显示全部品类；可拖动物料到品类池，也可在表格内直接下拉改品类。
           </p>
         </div>
@@ -151,13 +151,13 @@ export function ManualAdjustmentBoard({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="h-10 rounded-[14px] border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+            className="field-shell h-10 rounded-[12px] px-3 text-[13px] outline-none"
             placeholder="搜索物料 / 规格 / 供应商"
           />
           <select
             value={categoryFilter}
             onChange={(event) => setCategoryFilter(event.target.value)}
-            className="h-10 rounded-[14px] border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+            className="field-shell h-10 rounded-[12px] px-3 text-[13px] outline-none"
           >
             <option value="">全部品类</option>
             {allCategories.map((category) => <option key={category} value={category}>{category}</option>)}
@@ -166,14 +166,14 @@ export function ManualAdjustmentBoard({
             type="button"
             onClick={() => clearManual()}
             disabled={selectedIds.length === 0}
-            className="motion-lift h-10 rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="button-secondary motion-lift h-10 rounded-[14px] px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
           >
             清除所选规则
           </button>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] xl:items-start">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] xl:items-start">
         <CalibrationSheet
           rows={visibleRows}
           selectedIds={selectedIds}
@@ -227,12 +227,12 @@ function CalibrationSheet({
   onUpdateSingleRow: (row: CanonicalBomRow, field: EditableField, value: string) => void;
 }) {
   return (
-    <section className="min-w-0 rounded-[24px] border border-slate-200 bg-white/72 p-3 shadow-[0_18px_55px_rgba(15,23,42,0.06)]">
+    <section className="min-w-0 rounded-[18px] border border-slate-200/80 bg-white/68 p-3 shadow-[0_14px_42px_rgba(15,23,42,0.05)]">
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <PanelHeader title="供应商校准表" meta={`显示 ${rows.length} 行 / 已选 ${selectedIds.length} 行`} />
           {selectedRows.length > 0 && (
-            <div className="rounded-[14px] bg-slate-950 px-3 py-2 text-xs text-white">
+            <div className="rounded-[12px] bg-slate-950 px-3 py-2 text-xs text-white">
               已选：{selectedRows.map((row) => `${row.supplierName}-${row.materialName}`).slice(0, 3).join(" / ")}
               {selectedRows.length > 3 ? " ..." : ""}
             </div>
@@ -251,8 +251,8 @@ function CalibrationSheet({
         </div>
       </div>
 
-      <div className="mt-3 max-h-[calc(100dvh-320px)] min-h-[560px] overflow-auto rounded-[18px] border border-slate-200 bg-white">
-        <table className="min-w-[860px] border-collapse text-left text-xs">
+      <div className="mt-3 max-h-[calc(100dvh-320px)] min-h-[560px] overflow-auto rounded-[16px] border border-slate-200/80 bg-white/86">
+        <table className="type-table resizable-table min-w-[860px] text-left">
           <thead className="sticky top-0 z-20 bg-slate-50 text-slate-500 shadow-sm">
             <tr>
               <th className="sticky left-0 z-30 w-12 bg-slate-50 px-2 py-2 font-semibold">选</th>
@@ -276,16 +276,16 @@ function CalibrationSheet({
                     event.dataTransfer.setData("application/x-bom-row-ids", JSON.stringify(ids));
                     event.dataTransfer.effectAllowed = "move";
                   }}
-                  className={`border-t border-slate-100 ${selected ? "bg-blue-50/90" : "bg-white hover:bg-slate-50"}`}
+                  className={`border-t border-slate-100 ${selected ? "bg-emerald-50/90" : "bg-white/92 hover:bg-slate-50"}`}
                 >
-                  <td className={`sticky left-0 z-10 px-2 py-2 ${selected ? "bg-blue-50" : "bg-white"}`}>
+                  <td className={`sticky left-0 z-10 px-2 py-2 ${selected ? "bg-emerald-50" : "bg-white"}`}>
                     <input type="checkbox" checked={selected} onChange={() => onToggleSelected(row.id)} />
                   </td>
                   <td className="px-2 py-2">
                     <select
                       value={getRowCategory(row)}
                       onChange={(event) => onUpdateSingleRow(row, "category", event.target.value)}
-                      className="w-36 rounded-[10px] border border-slate-200 bg-white px-2 py-1 text-slate-700 outline-none"
+                      className="field-shell w-36 rounded-[10px] px-2 py-1 text-slate-700 outline-none"
                     >
                       {categories.map((category) => <option key={category} value={category}>{category}</option>)}
                     </select>
@@ -328,10 +328,10 @@ function SupplierTab({ active, label, count, onClick }: { active: boolean; label
       type="button"
       onClick={onClick}
       className={`motion-lift shrink-0 rounded-[16px] border px-4 py-2 text-left transition active:scale-[0.98] ${
-        active ? "border-slate-950 bg-slate-950 text-white shadow-[0_14px_28px_rgba(15,23,42,0.18)]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+        active ? "border-slate-950 bg-slate-950 text-white shadow-[0_12px_26px_rgba(15,23,42,0.16)]" : "border-slate-200 bg-white/82 text-slate-600 hover:border-slate-400"
       }`}
     >
-      <span className="block max-w-32 truncate text-sm font-semibold">{label}</span>
+      <span className="block max-w-32 truncate text-[13px] font-semibold">{label}</span>
       <span className={active ? "text-[11px] text-white/55" : "text-[11px] text-slate-400"}>{count} 行</span>
     </button>
   );
@@ -375,16 +375,16 @@ function CategoryPool({
   }, [allCategories, manualCategorySet, rows, sortMode]);
 
   return (
-    <aside className="xl:sticky xl:top-4 rounded-[24px] border border-slate-200 bg-white/78 p-3 shadow-[0_18px_55px_rgba(15,23,42,0.06)]">
+    <aside className="xl:sticky xl:top-4 rounded-[18px] border border-slate-200/80 bg-white/68 p-3 shadow-[0_14px_42px_rgba(15,23,42,0.05)]">
       <PanelHeader title="品类池" meta={`${categoryItems.length} 个有物料品类`} />
       <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
         <input
           value={newCategory}
           onChange={(event) => onNewCategoryChange(event.target.value)}
-          className="min-w-0 rounded-[12px] border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+          className="field-shell min-w-0 rounded-[12px] px-3 py-2 text-[13px] outline-none"
           placeholder="创建新品类"
         />
-        <button type="button" onClick={onCreateCategory} className="rounded-[14px] bg-slate-950 px-4 text-sm font-semibold text-white">
+        <button type="button" onClick={onCreateCategory} className="button-primary rounded-[12px] px-4 text-[13px] font-semibold">
           新增
         </button>
       </div>
@@ -392,14 +392,14 @@ function CategoryPool({
         <button
           type="button"
           onClick={() => onSortModeChange("count")}
-          className={`rounded-[14px] px-3 py-2 text-xs font-semibold ${sortMode === "count" ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+          className={`rounded-[12px] px-3 py-2 text-xs font-semibold ${sortMode === "count" ? "bg-slate-950 text-white" : "bg-white/82 text-slate-600 ring-1 ring-slate-200"}`}
         >
           按数量
         </button>
         <button
           type="button"
           onClick={() => onSortModeChange("name")}
-          className={`rounded-[14px] px-3 py-2 text-xs font-semibold ${sortMode === "name" ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+          className={`rounded-[12px] px-3 py-2 text-xs font-semibold ${sortMode === "name" ? "bg-slate-950 text-white" : "bg-white/82 text-slate-600 ring-1 ring-slate-200"}`}
         >
           按名称
         </button>
@@ -416,11 +416,11 @@ function CategoryPool({
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => onDropRows(event, category)}
               className={`group relative aspect-square min-h-[92px] rounded-[18px] border p-3 transition duration-200 active:scale-[0.98] ${
-                selected ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/15" : "border-slate-200 bg-slate-50 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white hover:shadow-md hover:shadow-slate-200/70"
+                selected ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/15" : "border-slate-200 bg-slate-50/78 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white hover:shadow-md hover:shadow-slate-200/70"
               }`}
             >
               <button type="button" onClick={() => onSelectCategory(selected ? "" : category)} className="flex h-full min-w-0 flex-col justify-between text-left">
-                <span className="line-clamp-2 pr-5 text-sm font-semibold leading-5">{category}</span>
+                <span className="line-clamp-2 pr-5 text-[13px] font-semibold leading-5">{category}</span>
                 <span className={selected ? "text-[11px] text-white/60" : "text-[11px] text-slate-500"}>{count} 行物料</span>
               </button>
               {canDelete && (
@@ -458,8 +458,8 @@ function NumberCell({ value, onChange }: { value: number; onChange: (value: stri
 function PanelHeader({ title, meta }: { title: string; meta: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <h3 className="text-sm font-semibold text-ink">{title}</h3>
-      <span className="rounded-full bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">{meta}</span>
+      <h3 className="type-panel-title text-ink">{title}</h3>
+      <span className="type-caption rounded-[12px] bg-slate-50/82 px-2 py-1 font-semibold text-slate-500 ring-1 ring-slate-200">{meta}</span>
     </div>
   );
 }
