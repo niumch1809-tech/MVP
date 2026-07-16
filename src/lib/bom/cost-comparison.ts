@@ -57,8 +57,8 @@ export type MaterialComparisonItem = {
   supplierMaterialNames: Record<string, string>;
   supplierSpecs: Record<string, string>;
   category: string;
-  minPrice: number;
-  maxPrice: number;
+  minAmount: number;
+  maxAmount: number;
   diffAmount: number;
   diffRate: number;
   suppliers: SupplierPricePoint[];
@@ -216,9 +216,9 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
         })
         .filter((point): point is SupplierPricePoint => point !== null);
 
-      const positivePrices = supplierPoints.map((point) => point.unitPrice).filter((price) => price > 0);
-      const minPrice = positivePrices.length > 0 ? Math.min(...positivePrices) : 0;
-      const maxPrice = positivePrices.length > 0 ? Math.max(...positivePrices) : 0;
+      const positiveAmounts = supplierPoints.map((point) => point.amount).filter((amount) => amount > 0);
+      const minAmount = positiveAmounts.length > 0 ? Math.min(...positiveAmounts) : 0;
+      const maxAmount = positiveAmounts.length > 0 ? Math.max(...positiveAmounts) : 0;
 
       return {
         id: key,
@@ -228,15 +228,15 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
         supplierMaterialNames: buildSupplierMaterialNames(rowsBySupplier, suppliers),
         supplierSpecs: buildSupplierSpecs(rowsBySupplier, suppliers),
         category: getEffectiveCategory(materialRows[0]),
-        minPrice,
-        maxPrice,
-        diffAmount: maxPrice - minPrice,
-        diffRate: minPrice > 0 ? maxPrice / minPrice - 1 : 0,
+        minAmount,
+        maxAmount,
+        diffAmount: maxAmount - minAmount,
+        diffRate: minAmount > 0 ? maxAmount / minAmount - 1 : 0,
         suppliers: supplierPoints,
         rows: materialRows
       };
     })
-    .sort((a, b) => b.diffAmount - a.diffAmount || b.maxPrice - a.maxPrice);
+    .sort((a, b) => b.diffAmount - a.diffAmount || b.maxAmount - a.maxAmount);
 }
 function isComparableCostRow(row: CanonicalBomRow): boolean {
   return row.amount > 0 && !isSummaryCostItem(row.materialName, row.category) && !isRollupCostRow(row.materialName, row.category);

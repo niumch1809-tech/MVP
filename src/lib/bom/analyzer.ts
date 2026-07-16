@@ -35,7 +35,7 @@ function findDataConflictIssues(rows: CanonicalBomRow[]): CostIssue[] {
 function findPriceGapIssues(rows: CanonicalBomRow[]): CostIssue[] {
   const issues: CostIssue[] = [];
   const byMaterial = groupBy(
-    rows.filter((row) => row.normalizedName && row.unitPrice > 0),
+    rows.filter((row) => row.normalizedName && row.amount > 0),
     (row) => `${row.normalizedName}__${row.spec}__${row.unit || ""}`
   );
 
@@ -45,22 +45,22 @@ function findPriceGapIssues(rows: CanonicalBomRow[]): CostIssue[] {
       return;
     }
 
-    const prices = materialRows.map((row) => row.unitPrice);
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
+    const amounts = materialRows.map((row) => row.amount);
+    const min = Math.min(...amounts);
+    const max = Math.max(...amounts);
     if (min > 0 && max / min >= 1.25) {
       const sample = materialRows[0];
       issues.push({
         id: `price-${sample.normalizedName}-${sample.spec}-${sample.unit}`,
         type: "price_gap",
         severity: max / min >= 1.6 ? "high" : "medium",
-        title: "供应商单价差异偏高",
+        title: "供应商物料金额差异偏高",
         detail: `${sample.materialName || sample.normalizedName} 的最高报价 ${max.toFixed(2)}，最低报价 ${min.toFixed(2)}，差异 ${(
           max / min -
           1
         ).toLocaleString("zh-CN", { style: "percent" })}。`,
         materialName: sample.normalizedName || sample.materialName,
-        recommendedAction: "优先复核规格、单位、币种、税费口径和 MOQ 是否一致，再向高价供应商发起议价。"
+        recommendedAction: "优先复核用量、规格、单位、币种、税费口径和 MOQ 是否一致，再向高金额供应商发起议价。"
       });
     }
   });
@@ -112,7 +112,7 @@ function renderMarkdown(summaries: SupplierSummary[], issues: CostIssue[]): stri
     "",
     "## 建议动作",
     "- 优先检查数据异常行，确保数量、单价、金额口径一致。",
-    "- 对同规格同单位物料进行供应商单价对比。",
+    "- 对同规格同单位物料进行供应商金额对比。",
     "- 对历史 BOM 中存在但当前报价缺失的物料发起补报。"
   ].join("\n");
 }

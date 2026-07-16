@@ -351,8 +351,8 @@ function buildMaterialDiffRows(comparison: CostComparison): DiffReportRow[] {
 
 function buildMaterialDiffRow(item: MaterialComparisonItem): DiffReportRow | null {
   const points = item.suppliers
-    .filter((point) => point.unitPrice > 0)
-    .sort((a, b) => a.unitPrice - b.unitPrice);
+    .filter((point) => point.amount > 0)
+    .sort((a, b) => a.amount - b.amount);
   if (points.length < 2) return null;
   const min = points[0];
   const max = points[points.length - 1];
@@ -362,10 +362,10 @@ function buildMaterialDiffRow(item: MaterialComparisonItem): DiffReportRow | nul
     category: item.category,
     minSupplier: min.supplierName,
     maxSupplier: max.supplierName,
-    minValue: min.unitPrice,
-    maxValue: max.unitPrice,
-    diffAmount: max.unitPrice - min.unitPrice,
-    diffRate: min.unitPrice > 0 ? (max.unitPrice - min.unitPrice) / min.unitPrice : 0,
+    minValue: min.amount,
+    maxValue: max.amount,
+    diffAmount: max.amount - min.amount,
+    diffRate: min.amount > 0 ? (max.amount - min.amount) / min.amount : 0,
     rows: item.rows
   };
 }

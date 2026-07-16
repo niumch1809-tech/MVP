@@ -37,7 +37,7 @@ const NAV_ITEMS: Array<{ id: WorkspaceView; label: string; eyebrow: string }> = 
   { id: "upload", label: "数据上传", eyebrow: "01" },
   { id: "adjust", label: "手工校准", eyebrow: "02" },
   { id: "compare", label: "报价对比图", eyebrow: "03" },
-  { id: "details", label: "数据表与预警", eyebrow: "04" },
+  { id: "details", label: "数据明细", eyebrow: "04" },
   { id: "report", label: "结果报告", eyebrow: "05" },
   { id: "output", label: "数据输出", eyebrow: "06" }
 ];
@@ -78,6 +78,10 @@ export default function Home() {
   const categoryOptions = useMemo(
     () => buildCategoryOptionsForFilters(rows, filters),
     [filters, rows]
+  );
+  const issueRows = useMemo(
+    () => comparison.filteredRows.filter((row) => row.dataIssues.length > 0),
+    [comparison.filteredRows]
   );
   const issueCount = useMemo(
     () => comparison.filteredRows.reduce((sum, row) => sum + row.dataIssues.length, 0),
@@ -172,6 +176,43 @@ export default function Home() {
     setDetailSelection(null);
   }
 
+  function updateSingleRow(rowId: string, patch: Partial<CanonicalBomRow>) {
+    const nextRecords = records.map((record) => ({
+      ...record,
+      rows: record.rows.map((row) => (row.id === rowId ? { ...row, ...patch } : row))
+    }));
+    saveLocalRecords(nextRecords);
+    setRecords(nextRecords);
+    setDetailSelection((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.map((row) => (row.id === rowId ? { ...row, ...patch } : row))
+          }
+        : current
+    );
+  }
+
+  function deleteSingleRow(rowId: string) {
+    const nextRecords = records
+      .map((record) => ({
+        ...record,
+        rows: record.rows.filter((row) => row.id !== rowId)
+      }))
+      .filter((record) => record.rows.length > 0)
+      .map((record) => ({ ...record, rowCount: record.rows.length }));
+    saveLocalRecords(nextRecords);
+    setRecords(nextRecords);
+    setDetailSelection((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.filter((row) => row.id !== rowId)
+          }
+        : current
+    );
+  }
+
   function createManualCategory(category: string) {
     const next = Array.from(new Set([...manualCategories, category.trim()].filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-CN"));
     saveLocalArray(LOCAL_MANUAL_CATEGORIES_KEY, next);
@@ -242,6 +283,15 @@ export default function Home() {
       setFilters({ supplierNames: [], productName: "", category: "", materialQuery: "" });
       setDetailSelection(null);
     });
+  }
+
+  function showIssueRows() {
+    if (issueRows.length === 0) return;
+    setDetailSelection({
+      rows: issueRows,
+      title: `异常数据行：${issueRows.length} 行 / ${issueCount} 个问题`
+    });
+    setActiveView("details");
   }
 
   async function refreshMarketPrices() {
@@ -353,7 +403,7 @@ export default function Home() {
               <MiniStat label="供应商" value={comparison.suppliers.length.toString()} />
               <MiniStat label="物料" value={comparison.materialComparisons.length.toString()} />
               <MiniStat label="明细行" value={comparison.filteredRows.length.toString()} />
-              <MiniStat label="预警" value={issueCount.toString()} tone={issueCount > 0 ? "danger" : "normal"} />
+              <MiniStat label="异常行" value={issueRows.length.toString()} tone={issueCount > 0 ? "danger" : "normal"} onClick={showIssueRows} />
             </div>
           </div>
         </aside>
@@ -390,7 +440,13 @@ export default function Home() {
               <div className="type-caption grid grid-cols-3 gap-2 text-center text-slate-500">
                 <MetricCell compact={activeView === "upload"} label="文件" value={records.length.toString()} />
                 <MetricCell compact={activeView === "upload"} label="可比物料" value={comparison.materialComparisons.length.toString()} />
-                <MetricCell compact={activeView === "upload"} label="异常" value={issueCount.toString()} tone={issueCount > 0 ? "danger" : "normal"} />
+                <MetricCell
+                  compact={activeView === "upload"}
+                  label="异常"
+                  value={issueCount.toString()}
+                  tone={issueCount > 0 ? "danger" : "normal"}
+                  onClick={showIssueRows}
+                />
               </div>
             </div>
           </header>
@@ -487,7 +543,12 @@ export default function Home() {
                     </button>
                   )}
                 </div>
-                <BomTable rows={visibleRows} priceComparisonsByRowId={marketPriceByRowId} />
+                <BomTable
+                  rows={visibleRows}
+                  priceComparisonsByRowId={marketPriceByRowId}
+                  onUpdateRow={updateSingleRow}
+                  onDeleteRow={deleteSingleRow}
+                />
               </section>
             </>
           )}
@@ -949,8 +1010,8 @@ function UserGuideModal({ onClose }: { onClose: () => void }) {
       body: "查看供应商总成本、品类成本、成本结构占比和物料级差异。"
     },
     {
-      title: "4. 数据表与预警",
-      body: "追溯异常价格、缺项、参考价偏离和原始 BOM 行。"
+      title: "4. 数据明细",
+      body: "追溯异常价格、缺项、参考价偏离和原始 BOM 行；点击异常数字可直接筛出异常行。"
     },
     {
       title: "5. 数据输出",
@@ -1106,12 +1167,29 @@ function FilterPanel({
   );
 }
 
-function MiniStat({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "danger" }) {
+function MiniStat({
+  label,
+  value,
+  tone = "normal",
+  onClick
+}: {
+  label: string;
+  value: string;
+  tone?: "normal" | "danger";
+  onClick?: () => void;
+}) {
+  const Element = onClick ? "button" : "div";
   return (
-    <div className="rounded-[14px] bg-white/68 p-3 ring-1 ring-slate-200/80">
+    <Element
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={`rounded-[14px] bg-white/68 p-3 text-left ring-1 ring-slate-200/80 ${
+        onClick ? "motion-lift cursor-pointer transition hover:bg-white active:scale-[0.98]" : ""
+      }`}
+    >
       <p className="type-micro text-slate-500">{label}</p>
       <p className={`mt-1 text-[1.35rem] font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
-    </div>
+    </Element>
   );
 }
 
@@ -1119,18 +1197,27 @@ function MetricCell({
   label,
   value,
   tone = "normal",
-  compact = false
+  compact = false,
+  onClick
 }: {
   label: string;
   value: string;
   tone?: "normal" | "danger";
   compact?: boolean;
+  onClick?: () => void;
 }) {
+  const Element = onClick ? "button" : "div";
   return (
-    <div className={`metric-strip rounded-[14px] ${compact ? "px-3 py-2" : "px-3.5 py-2.5"}`}>
+    <Element
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={`metric-strip rounded-[14px] text-center ${
+        compact ? "px-3 py-2" : "px-3.5 py-2.5"
+      } ${onClick ? "motion-lift cursor-pointer transition hover:bg-white active:scale-[0.98]" : ""}`}
+    >
       <p className={`${compact ? "text-[1.05rem]" : "text-[1.22rem]"} font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
       <p className="mt-0.5 font-semibold">{label}</p>
-    </div>
+    </Element>
   );
 }
 

@@ -42,7 +42,7 @@ const GROUPED_BAR_SIZE = 18;
 const BAR_GAP = 3;
 const BAR_CATEGORY_GAP = "8%";
 const DENSE_LABEL_CELL_LIMIT = 12;
-type MaterialSortKey = "materialName" | "category" | "minPrice" | "maxPrice" | "diffAmount" | "diffRate" | "coverage";
+type MaterialSortKey = "materialName" | "category" | "minAmount" | "maxAmount" | "diffAmount" | "diffRate" | "coverage";
 type MaterialSortDirection = "asc" | "desc";
 type FlatCategoryChartRow = {
   axisKey: string;
@@ -514,7 +514,7 @@ function buildSupplierCategoryPieRows(rows: CanonicalBomRow[]) {
 function buildSupplierMaterialPieRows(rows: CanonicalBomRow[]) {
   const groups = new Map<string, { name: string; value: number; rows: CanonicalBomRow[] }>();
   rows.forEach((row) => {
-    const name = `${row.productName || "未命名产品"} / ${row.materialName}`;
+    const name = row.materialName || row.normalizedName || "未命名物料";
     const current = groups.get(name) ?? { name, value: 0, rows: [] };
     current.value += row.amount;
     current.rows.push(row);
@@ -754,7 +754,7 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
     () =>
       withDiffMetrics(
         comparison.materialComparisons.slice(0, maxChartItems).map((item) => {
-          const pointBySupplier = new Map(item.suppliers.map((entry) => [entry.supplierName, entry.unitPrice]));
+          const pointBySupplier = new Map(item.suppliers.map((entry) => [entry.supplierName, entry.amount]));
           const result: Record<string, string | number | CanonicalBomRow[]> = {
             materialName: item.materialName,
             displayMaterialName: getMaterialDisplayName(item.materialName, item.rows),
@@ -783,8 +783,8 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h2 className="type-panel-title text-ink">{selectedCategory}物料单价对比</h2>
-          <p className="type-caption mt-1 text-slate-500">筛选品类后按物料逐项比较供应商单价</p>
+          <h2 className="type-panel-title text-ink">{selectedCategory}物料金额对比</h2>
+          <p className="type-caption mt-1 text-slate-500">按 BOM 用量 × 单价后的实际金额比较供应商成本</p>
         </div>
         <span className="type-caption text-slate-500">横坐标为物料，柱子为供应商</span>
       </div>
@@ -883,8 +883,8 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
                 {supplier}
               </th>
             ))}
-            <SortableHeader label="最低" active={sortKey === "minPrice"} direction={sortDirection} align="right" onClick={() => toggleSort("minPrice")} />
-            <SortableHeader label="最高" active={sortKey === "maxPrice"} direction={sortDirection} align="right" onClick={() => toggleSort("maxPrice")} />
+            <SortableHeader label="最低金额" active={sortKey === "minAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("minAmount")} />
+            <SortableHeader label="最高金额" active={sortKey === "maxAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("maxAmount")} />
             <SortableHeader label="差异" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
             <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">风险</th>
             <SortableHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
@@ -907,12 +907,12 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
                   const point = item.suppliers.find((entry) => entry.supplierName === supplier);
                   return (
                     <td key={supplier} className="whitespace-nowrap px-3 py-2 text-right text-slate-700">
-                      {point ? formatMoney(point.unitPrice) : <span className="text-slate-400">缺项</span>}
+                      {point ? formatMoney(point.amount) : <span className="text-slate-400">缺项</span>}
                     </td>
                   );
                 })}
-                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(item.minPrice)}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(item.maxPrice)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(item.minAmount)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(item.maxAmount)}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-danger">
                   {formatMoney(item.diffAmount)}
                   <span className="ml-1 text-xs text-slate-500">{formatPercent(item.diffRate)}</span>
@@ -1081,8 +1081,8 @@ function SortableHeader({
 function compareMaterial(a: MaterialComparisonItem, b: MaterialComparisonItem, key: MaterialSortKey): number {
   if (key === "materialName") return a.materialName.localeCompare(b.materialName, "zh-CN");
   if (key === "category") return a.category.localeCompare(b.category, "zh-CN");
-  if (key === "minPrice") return a.minPrice - b.minPrice;
-  if (key === "maxPrice") return a.maxPrice - b.maxPrice;
+  if (key === "minAmount") return a.minAmount - b.minAmount;
+  if (key === "maxAmount") return a.maxAmount - b.maxAmount;
   if (key === "diffRate") return a.diffRate - b.diffRate;
   if (key === "coverage") return a.suppliers.length - b.suppliers.length;
   return a.diffAmount - b.diffAmount;
