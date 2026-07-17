@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
 import { CanonicalBomRow } from "@/types/bom";
-import { STANDARD_CATEGORIES, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { getComparisonObjectLabel, STANDARD_CATEGORIES, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 
 type ManualGroup = {
   id: string;
@@ -36,7 +36,7 @@ export function ManualAdjustmentBoard({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
 
-  const suppliers = useMemo(() => unique(rows.map((row) => row.supplierName).filter(Boolean)), [rows]);
+  const suppliers = useMemo(() => unique(rows.map(getComparisonObjectLabel).filter(Boolean)), [rows]);
   const allCategories = useMemo(
     () => unique([...STANDARD_CATEGORIES, ...categories, ...rows.map(getRowCategory)].filter(Boolean)),
     [categories, rows]
@@ -59,11 +59,11 @@ export function ManualAdjustmentBoard({
   const visibleRows = useMemo(() => {
     const text = query.trim().toLowerCase();
     return rows
-      .filter((row) => !supplier || row.supplierName === supplier)
+      .filter((row) => !supplier || getComparisonObjectLabel(row) === supplier)
       .filter((row) => !categoryFilter || getRowCategory(row) === categoryFilter)
       .filter((row) => {
         if (!text) return true;
-        return `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec} ${row.supplierName}`
+        return `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec} ${row.supplierName} ${row.quoteName ?? ""}`
           .toLowerCase()
           .includes(text);
       })
@@ -144,7 +144,7 @@ export function ManualAdjustmentBoard({
         <div className="min-w-0">
           <h3 className="type-panel-title text-ink">手工校准台</h3>
           <p className="type-caption mt-1 max-w-3xl text-slate-500">
-            左侧按供应商检查物料，右侧固定显示全部品类；可拖动物料到品类池，也可在表格内直接下拉改品类。
+            左侧按报价对象检查物料，右侧维护标准品类。拖动物料或使用下拉框即可修正归类。
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_170px_140px]">
@@ -152,7 +152,7 @@ export function ManualAdjustmentBoard({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="field-shell h-10 rounded-[12px] px-3 text-[13px] outline-none"
-            placeholder="搜索物料 / 规格 / 供应商"
+            placeholder="搜索物料 / 规格 / 报价对象"
           />
           <select
             value={categoryFilter}
@@ -230,7 +230,7 @@ function CalibrationSheet({
     <section className="min-w-0 rounded-[18px] border border-slate-200/80 bg-white/68 p-3 shadow-[0_14px_42px_rgba(15,23,42,0.05)]">
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <PanelHeader title="供应商校准表" meta={`显示 ${rows.length} 行 / 已选 ${selectedIds.length} 行`} />
+          <PanelHeader title="物料校准表" meta={`显示 ${rows.length} 行 / 已选 ${selectedIds.length} 行`} />
           {selectedRows.length > 0 && (
             <div className="rounded-[12px] bg-slate-950 px-3 py-2 text-xs text-white">
               已选：{selectedRows.map((row) => `${row.supplierName}-${row.materialName}`).slice(0, 3).join(" / ")}
@@ -244,7 +244,7 @@ function CalibrationSheet({
               key={item}
               active={activeSupplier === item}
               label={item}
-              count={rows.filter((row) => row.supplierName === item).length}
+              count={rows.filter((row) => getComparisonObjectLabel(row) === item).length}
               onClick={() => onSupplierChange(item)}
             />
           ))}
@@ -311,7 +311,7 @@ function CalibrationSheet({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-3 py-10 text-center text-sm text-slate-500">
-                  当前筛选下没有可校准物料，请先上传供应商 BOM 或调整筛选条件。
+                  当前筛选下没有可校准物料。请上传 BOM，或切换报价对象、品类和搜索条件。
                 </td>
               </tr>
             )}
@@ -404,7 +404,7 @@ function CategoryPool({
           按名称
         </button>
       </div>
-      <p className="mt-3 text-[11px] leading-5 text-slate-500">固定显示全部品类。拖动物料到方块即可归类，点击方块可筛选左侧表格。</p>
+      <p className="mt-3 text-[11px] leading-5 text-slate-500">只显示已有物料或手工创建的品类。拖入方块即可归类，点击方块可筛选左侧表格。</p>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
         {categoryItems.map(({ category, count }) => {

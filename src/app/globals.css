@@ -320,6 +320,28 @@ html {
   line-height: 1.2;
 }
 
+.dark-audit-table th:first-child,
+.dark-audit-table td:first-child {
+  background: rgba(15, 23, 42, 0.88);
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+.dark-audit-table thead th {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.dark-audit-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dark-audit-table td:first-child {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.dark-audit-table th::after {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .sidebar-shell {
   border: 1px solid var(--line-soft);
   background:

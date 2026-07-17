@@ -15,6 +15,7 @@ import {
   parseMaterialDescriptor,
   toNumber
 } from "./normalize";
+import { findStructuredQuoteTitle, parseQuoteIdentity } from "./quote-identity";
 
 type ComplexParseInput = {
   fileId: string;
@@ -22,14 +23,6 @@ type ComplexParseInput = {
   productName: string;
   supplierName: string;
   kind: BomFileKind;
-};
-
-type QuoteIdentity = {
-  supplierName: string;
-  productName: string;
-  productModel: string;
-  productColor: string;
-  quoteName: string;
 };
 
 type ExtractedComplexRowFields = {
@@ -84,7 +77,7 @@ export function parseComplexBomWorkbook(workbook: XLSX.WorkBook, input: ComplexP
     record: {
       id: input.fileId,
       fileName: input.fileName,
-      productName: input.productName,
+      productName: rows.find((row) => row.productName)?.productName ?? input.productName,
       supplierName: hasMultipleSheets ? `${input.supplierName}（复杂多工作表）` : rows[0]?.supplierName ?? input.supplierName,
       kind: input.kind,
       uploadedAt: new Date().toISOString(),
@@ -590,23 +583,12 @@ function firstFieldMapping(structures: ComplexSheetStructure[]): BomFieldMapping
 
 function resolveQuoteName(input: ComplexParseInput, structure: ComplexSheetStructure, hasMultipleSheets: boolean): string {
   const sheetName = structure.sheetName.trim();
+  const firstHeaderRow = Math.min(...structure.clearHeaderRows);
+  const quoteTitle = Number.isFinite(firstHeaderRow) ? findStructuredQuoteTitle(structure.matrix, firstHeaderRow) : "";
+  if (quoteTitle) return quoteTitle;
   if (!hasMultipleSheets) return input.supplierName;
   if (sheetName && !GENERIC_SHEET_NAMES.has(sheetName.toLowerCase())) return sheetName;
   return `${input.supplierName}-报价${structure.sheetIndex + 1}`;
-}
-
-function parseQuoteIdentity(rawValue: string, fallbackSupplier: string, fallbackProduct: string): QuoteIdentity {
-  const quoteName = rawValue.trim();
-  const parts = quoteName.split(/\s*[-–—_]\s*/).map((part) => part.trim()).filter(Boolean);
-  const hasStructuredTitle = parts.length >= 3;
-
-  return {
-    supplierName: hasStructuredTitle ? parts[0] : fallbackSupplier,
-    productName: hasStructuredTitle ? parts[1] : fallbackProduct,
-    productModel: hasStructuredTitle ? parts[2] : "",
-    productColor: hasStructuredTitle ? parts.slice(3).join("-") : "",
-    quoteName
-  };
 }
 
 function getRowText(cells: unknown[]): string {

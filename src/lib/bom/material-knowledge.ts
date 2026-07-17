@@ -64,7 +64,7 @@ export const MATERIAL_KNOWLEDGE_RULES: MaterialKnowledgeRule[] = [
   { canonicalName: "扩散板/扩散罩", category: "光源", aliases: ["扩散板", "扩散罩", "扩散片", "diffuser"], ignoreSpec: false },
   { canonicalName: "反光杯/反射器", category: "光源", aliases: ["反光杯", "反射器", "反射罩", "reflector"], ignoreSpec: false },
 
-  { canonicalName: "五金包", category: "五金", aliases: ["五金包", "五金包组", "螺丝包", "安装包", "hardware kit"], ignoreSpec: true },
+  { canonicalName: "五金包", category: "五金", aliases: ["五金包", "五金包组", "配件包", "配件包组", "螺丝包", "安装包", "hardware kit", "accessory kit", "parts kit"], ignoreSpec: true },
   { canonicalName: "螺丝", category: "五金", aliases: ["螺丝", "螺钉", "机牙螺丝", "自攻螺丝", "screw"], ignoreSpec: false },
   { canonicalName: "内六角沉头螺丝", category: "五金", aliases: ["内六角沉头螺丝", "沉头螺丝", "内六角螺丝"], ignoreSpec: false },
   { canonicalName: "六角扳手", category: "五金", aliases: ["六角扳手", "内六角扳手", "扳手", "allen key"], ignoreSpec: false },
@@ -103,7 +103,7 @@ const CATEGORY_ALIASES: Record<string, string[]> = {
   光源: ["光源", "光电", "灯珠", "led", "cob", "透镜", "扩散"],
   线材: ["线材", "电线", "电子线", "电源线", "插座", "线夹"],
   包装: ["包装", "包装部分", "纸箱", "彩盒", "泡棉", "泡沫"],
-  五金: ["五金", "五金包", "螺丝", "螺母", "垫片", "扳手"],
+  五金: ["五金", "五金包", "配件包", "螺丝", "螺母", "垫片", "扳手"],
   电机: ["电机", "马达", "motor"],
   杂项: ["杂项", "辅料", "脚垫", "胶水", "酒精"],
   表面处理: ["表面", "喷涂", "电镀", "氧化", "烤漆", "处理"],

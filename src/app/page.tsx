@@ -9,7 +9,7 @@ import type { ManualGroup } from "@/components/ManualAdjustmentBoard";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
 import { ResultReport } from "@/components/ResultReport";
 import { parseBomFileInBrowser } from "@/lib/bom/browser-parser";
-import { buildCostComparison, CostFilters, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { buildCostComparison, CostFilters, getComparisonObjectLabel, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 import { getMaterialPriceComparisons } from "@/lib/bom/material-price";
 import { parseMaterialPriceFile } from "@/lib/bom/price-table-client";
 import { buildTemplateOutputArray } from "@/lib/bom/template-export";
@@ -93,7 +93,7 @@ export default function Home() {
     [marketPriceResult]
   );
   const selectedSupplierLabel =
-    filters.supplierNames.length === 0 ? "全部供应商" : filters.supplierNames.join(" / ");
+    filters.supplierNames.length === 0 ? "全部对比对象" : filters.supplierNames.join(" / ");
 
   const refresh = useCallback(() => {
     setRecords(loadLocalRecords());
@@ -118,7 +118,7 @@ export default function Home() {
     setDetailSelection(null);
 
     const result = await parseSelectedFiles(files, { productName, supplierName, kind });
-    const quoteObjectCount = new Set(result.records.flatMap((record) => record.rows.map((row) => row.supplierName))).size;
+    const quoteObjectCount = new Set(result.records.flatMap((record) => record.rows.map(getComparisonObjectLabel))).size;
     setUploadErrors(result.errors);
     setMessage(
       result.records.length > 0
@@ -315,7 +315,7 @@ export default function Home() {
       setMarketPriceResult(result);
       setPriceSourceMessage("");
     } catch {
-      setMarketPriceError("无法连接材料价格接口，请检查外部价格源配置或改用上传价格表。");
+      setMarketPriceError("无法读取材料参考价 URL。目标网页可能禁止跨域抓取，可改用上传价格表或接入返回 prices JSON 的 API。");
     } finally {
       setIsRefreshingMarketPrices(false);
     }
@@ -329,7 +329,7 @@ export default function Home() {
       const prices = await parseMaterialPriceFile(file);
       setUploadedMarketPrices(prices);
       setPriceFileName(file.name);
-      setPriceSourceMessage(`已载入 ${file.name}，共 ${prices.length} 条参考价。上传价格表会优先用于核价。`);
+      setPriceSourceMessage(`已载入 ${file.name}，共 ${prices.length} 条参考价。系统将优先使用该价格表核价。`);
     } catch (error) {
       setUploadedMarketPrices([]);
       setPriceFileName("");
@@ -341,7 +341,7 @@ export default function Home() {
   function clearUploadedPrices() {
     setUploadedMarketPrices([]);
     setPriceFileName("");
-    setPriceSourceMessage("已清空上传价格表，将使用 URL 接口或内置 mock 价格源。");
+    setPriceSourceMessage("已清空上传价格表，将使用 URL 网页/API 或内置近期原材料参考库。");
   }
 
   function exportRawCsv() {
@@ -400,7 +400,7 @@ export default function Home() {
             </nav>
 
             <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
-              <MiniStat label="供应商" value={comparison.suppliers.length.toString()} />
+              <MiniStat label="对比对象" value={comparison.suppliers.length.toString()} />
               <MiniStat label="物料" value={comparison.materialComparisons.length.toString()} />
               <MiniStat label="明细行" value={comparison.filteredRows.length.toString()} />
               <MiniStat label="异常行" value={issueRows.length.toString()} tone={issueCount > 0 ? "danger" : "normal"} onClick={showIssueRows} />
@@ -532,14 +532,14 @@ export default function Home() {
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前对比明细"}</h3>
-                    <p className="text-xs text-slate-500">排序、筛选和原始字段追溯保留在同一张表内。</p>
+                    <p className="text-xs text-slate-500">可排序、筛选、修改或删除异常行；原始字段保留用于追溯。</p>
                   </div>
                   {detailSelection && (
                     <button
                       onClick={() => setDetailSelection(null)}
                       className="button-secondary motion-lift rounded-[12px] px-4 py-2 text-sm font-semibold active:scale-[0.98]"
                     >
-                      返回筛选明细
+                      返回当前筛选
                     </button>
                   )}
                 </div>
@@ -580,12 +580,12 @@ export default function Home() {
               <div className="app-surface rounded-[20px] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-ink">输出文件</h3>
-                    <p className="text-xs text-slate-500">整合表用于供应商横向核价，明细表用于原始数据追溯。</p>
+                    <h3 className="text-sm font-semibold text-ink">导出成本核验表</h3>
+                    <p className="text-xs text-slate-500">导出前先选择沟通对象；系统会优先使用该对象的物料名和规格。</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="field-shell flex items-center gap-2 rounded-[14px] px-3 py-2 text-xs font-semibold text-slate-600">
-                      输出命名
+                      沟通对象
                       <select
                         value={outputNameSupplier}
                         onChange={(event) => setOutputNameSupplier(event.target.value)}
@@ -723,7 +723,7 @@ function getRecordSourceKey(record: BomFileRecord): string {
 
 function reconcileFilters(filters: CostFilters, records: BomFileRecord[]): CostFilters {
   const products = new Set(records.flatMap((record) => record.rows.map((row) => row.productName).filter(Boolean)));
-  const suppliers = new Set(records.flatMap((record) => record.rows.map((row) => row.supplierName).filter(Boolean)));
+  const suppliers = new Set(records.flatMap((record) => record.rows.map(getComparisonObjectLabel).filter(Boolean)));
   return {
     ...filters,
     productName: !filters.productName || products.has(filters.productName) ? filters.productName : "",
@@ -737,7 +737,7 @@ function buildCategoryOptionsForFilters(rows: CanonicalBomRow[], filters: CostFi
 
   rows.forEach((row) => {
     if (row.kind !== "supplier_quote") return;
-    if (filters.supplierNames.length > 0 && !filters.supplierNames.includes(row.supplierName)) return;
+    if (filters.supplierNames.length > 0 && !filters.supplierNames.includes(getComparisonObjectLabel(row))) return;
     if (filters.productName && row.productName !== filters.productName) return;
     if (query) {
       const materialText = `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec}`.toLowerCase();
@@ -799,8 +799,8 @@ function UploadView({
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const kindHelp =
     kind === "supplier_quote"
-      ? "供应商报价会进入报价对比、差异分析和输出表。"
-      : "历史 BOM 会作为后续价格参考库来源，暂不参与当前供应商报价排名。";
+      ? "进入当前项目对比；同一供应商的不同型号会按报价对象分开核验。"
+      : "沉淀为参考价格来源；不会参与当前供应商排名。";
 
   return (
     <section className="reveal-in grid w-full gap-4 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_390px]">
@@ -810,9 +810,9 @@ function UploadView({
             <div className="type-micro inline-flex rounded-[10px] bg-slate-950 px-3 py-1 text-white">
               开始前
             </div>
-            <h3 className="type-section-title mt-2 text-ink">先下载标准模板，或查看 BOM 核验流程</h3>
+            <h3 className="type-section-title mt-2 text-ink">先准备输入模板，再上传报价文件</h3>
             <p className="type-body mt-1 text-slate-500">
-              下载文件只包含供应商需要填写的输入工作表；输出格式由平台按模板结构自动生成。
+              供应商只需填写“输入”工作表；平台会按模板输出核价表、差异和沟通依据。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -821,14 +821,14 @@ function UploadView({
               onClick={() => setIsGuideOpen(true)}
               className="button-primary motion-lift rounded-[14px] px-5 py-3 text-sm font-semibold active:scale-[0.98]"
             >
-              查看使用手册
+              查看操作说明
             </button>
             <a
               href="/templates/bom-input-output-template.xlsx"
               download="BOM输入模板2.0.xlsx"
               className="button-secondary motion-lift rounded-[14px] px-5 py-3 text-sm font-semibold active:scale-[0.98]"
             >
-              获取 BOM 表输入模板
+              下载 BOM 输入模板
             </a>
           </div>
         </div>
@@ -844,9 +844,7 @@ function UploadView({
               className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
               placeholder="例如：7月供应商报价汇总；可留空"
             />
-            <p className="type-caption mt-2 text-slate-500">
-              只用于归档本次上传，不作为物料匹配的硬条件；真实供应商、产品、型号、颜色会优先从模板标题识别。
-            </p>
+            <p className="type-caption mt-2 text-slate-500">用于记录本次任务。报价对象会优先从模板标题自动识别。</p>
           </label>
 
           <label className="block">
@@ -875,7 +873,7 @@ function UploadView({
 
         <label className="mt-4 block rounded-[18px] border border-dashed border-slate-300 bg-slate-50/72 p-6 transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-slate-500 hover:bg-white/84">
           <span className="type-panel-title text-ink">Excel / CSV 文件</span>
-          <span className="type-caption ml-2 text-slate-500">可一次选择多个供应商文件</span>
+            <span className="type-caption ml-2 text-slate-500">支持多文件、多工作表、同供应商多型号</span>
           <input
             type="file"
             multiple
@@ -909,7 +907,7 @@ function UploadView({
                 </span>
               ))
             ) : (
-              <span>支持一次上传多个供应商文件；重复选择同一文件不会叠加。</span>
+              <span>选择 Excel / CSV 后点击上传解析；重复选择同一文件不会叠加。</span>
             )}
           </div>
         </label>
@@ -988,7 +986,7 @@ function UploadView({
               )}
             </div>
           ))}
-          {records.length === 0 && <div className="rounded-[18px] bg-slate-50 p-8 text-center text-sm text-slate-500">暂无解析记录。</div>}
+          {records.length === 0 && <div className="rounded-[18px] bg-slate-50 p-8 text-center text-sm text-slate-500">上传后会在这里显示文件、报价对象和解析诊断。</div>}
         </div>
       </div>
     </section>
@@ -999,23 +997,27 @@ function UserGuideModal({ onClose }: { onClose: () => void }) {
   const steps = [
     {
       title: "1. 上传 BOM",
-      body: "上传供应商报价或历史 BOM。上传批次名可以留空；如果模板标题包含“供应商-产品名-型号-颜色”，系统会优先识别这些真实维度。"
+      body: "上传报价或历史 BOM。模板标题建议使用“供应商-产品名-型号-颜色”，系统会拆成独立对比对象。"
     },
     {
       title: "2. 手工校准",
-      body: "逐个供应商检查物料，把不同命名但实际相同的物料归到同一品类或手工匹配关系里。"
+      body: "按报价对象检查物料，把同一零件的不同叫法归到同一标准品类。"
     },
     {
       title: "3. 报价对比",
-      body: "查看供应商总成本、品类成本、成本结构占比和物料级差异。"
+      body: "查看总价、品类金额、成本结构和物料金额差异；点击图表可追溯来源。"
     },
     {
       title: "4. 数据明细",
-      body: "追溯异常价格、缺项、参考价偏离和原始 BOM 行；点击异常数字可直接筛出异常行。"
+      body: "核对原始 BOM 行、异常项和材料参考价偏离；异常行可直接筛选后修改或删除。"
     },
     {
-      title: "5. 数据输出",
-      body: "按整合后的成本对比表或模板格式导出 Excel，用于内部评审和供应商沟通。"
+      title: "5. 结果报告",
+      body: "查看总报价结论、品类沟通重点和物料沟通重点；可按当前筛选范围生成简短评审摘要。"
+    },
+    {
+      title: "6. 数据输出",
+      body: "选择沟通对象后导出模板化 Excel，物料名和规格尽量保留供应商原始写法。"
     }
   ];
 
@@ -1033,7 +1035,7 @@ function UserGuideModal({ onClose }: { onClose: () => void }) {
             <div className="inline-flex rounded-[12px] bg-slate-950 px-3 py-1 text-[11px] font-semibold text-white">
               使用手册
             </div>
-            <h3 className="mt-2 text-xl font-semibold text-ink">BOM 成本核验操作流程</h3>
+            <h3 className="mt-2 text-xl font-semibold text-ink">BOM 成本核验操作说明</h3>
           </div>
           <button
             type="button"
@@ -1045,7 +1047,7 @@ function UserGuideModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           {steps.map((step) => (
             <div key={step.title} className="rounded-[18px] bg-slate-50 p-3 ring-1 ring-slate-200">
               <h4 className="text-xs font-semibold text-ink">{step.title}</h4>
@@ -1056,7 +1058,7 @@ function UserGuideModal({ onClose }: { onClose: () => void }) {
 
         <div className="mt-4 rounded-[18px] bg-white p-4 text-xs leading-5 text-slate-500 ring-1 ring-slate-200">
           <p>
-            物料匹配默认以标准化物料名和手工匹配键为主，不再把上传批次名作为硬条件。需要比较同产品、同型号或不同代产品时，优先通过模板标题和页面筛选来限定范围。
+            对比列以“供应商 + 产品名 + 型号 + 颜色”为准。同一供应商上传两代产品时，会自动拆成两个报价对象；物料匹配则使用标准化物料名和手工校准结果，不把上传批次名作为硬条件。
           </p>
         </div>
       </section>
@@ -1086,7 +1088,7 @@ function FilterPanel({
       <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(220px,1.2fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(220px,2fr)_auto]">
         <div className="block min-w-0">
           <div className="flex items-center justify-between gap-3">
-            <span className="type-caption font-semibold text-slate-500">供应商筛选</span>
+            <span className="type-caption font-semibold text-slate-500">对比对象筛选</span>
             <button type="button" onClick={onSelectAllSuppliers} className="type-caption font-semibold text-ink hover:text-slate-500">
               全部
             </button>
@@ -1109,7 +1111,7 @@ function FilterPanel({
                 </label>
               );
             })}
-            {comparison.suppliers.length === 0 && <span className="px-2 text-sm text-slate-400">上传 BOM 后可筛选</span>}
+            {comparison.suppliers.length === 0 && <span className="px-2 text-sm text-slate-400">上传报价 BOM 后可筛选</span>}
           </div>
         </div>
 
@@ -1285,7 +1287,7 @@ function getMarketRiskLabel(
 
 function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, outputNameSupplier: string): string {
   const supplierHeaders = comparison.activeSuppliers.flatMap((supplier) => [`${supplier}报价`, `${supplier}规格描述`]);
-  const headers = ["分类", "名称", ...supplierHeaders, "差值", "百分比", "产品", "覆盖供应商"];
+  const headers = ["分类", "名称", ...supplierHeaders, "差值", "百分比", "产品", "覆盖对象"];
   const body: string[][] = [];
 
   comparison.categories.forEach((category) => {

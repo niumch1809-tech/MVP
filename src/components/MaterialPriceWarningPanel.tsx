@@ -44,13 +44,13 @@ export function MaterialPriceWarningPanel({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="type-micro inline-flex rounded-[10px] bg-white/10 px-3 py-1 text-white/70">
-            常规材料价格接口
+            常规材料参考价源
           </div>
           <h3 className="type-section-title mt-3">供应商报价 vs 材料参考价</h3>
           <p className="type-body mt-1 text-white/58">
             {result
               ? `${result.sourceName}，更新时间 ${formatDate(result.generatedAt)}`
-              : `待刷新：将对当前筛选范围内 ${rowCount} 行 BOM 做行情核验。`}
+              : `读取后将核验当前筛选范围内 ${rowCount} 行物料单价。`}
           </p>
         </div>
         <button
@@ -59,18 +59,18 @@ export function MaterialPriceWarningPanel({
           disabled={isLoading || rowCount === 0}
           className="motion-lift rounded-[14px] bg-white px-5 py-2 text-[13px] font-semibold text-slate-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isLoading ? "刷新中..." : "刷新材料价格"}
+            {isLoading ? "读取中..." : "读取参考价"}
         </button>
       </div>
 
       <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
         <label className="block min-w-0">
-          <span className="type-caption font-semibold text-white/54">价格接口 URL</span>
+          <span className="type-caption font-semibold text-white/54">价格网页 / API URL</span>
           <input
             value={providerUrl}
             onChange={(event) => onProviderUrlChange(event.target.value)}
             className="mt-2 h-10 w-full rounded-[12px] border border-white/10 bg-white/8 px-3 text-[13px] text-white outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] placeholder:text-white/28 focus:border-white/30"
-            placeholder="https://example.com/material-price-api"
+            placeholder="输入材料行情网页，或返回 prices JSON 的 API"
           />
         </label>
 
@@ -96,7 +96,7 @@ export function MaterialPriceWarningPanel({
 
       {(sourceMessage || uploadedPriceCount > 0 || priceFileName) && (
         <div className="type-caption mt-3 rounded-[18px] bg-white/7 p-3 text-white/62 ring-1 ring-white/10">
-          {sourceMessage || `已载入 ${priceFileName}，共 ${uploadedPriceCount} 条参考价。上传价格表优先于 URL 接口。`}
+          {sourceMessage || `已载入 ${priceFileName}，共 ${uploadedPriceCount} 条参考价。优先使用上传价格表，再读取 URL。`}
         </div>
       )}
 
@@ -111,7 +111,7 @@ export function MaterialPriceWarningPanel({
 
       {warningRows.length > 0 && (
         <div className="mt-4 max-w-full overflow-auto rounded-[18px] bg-white/7 ring-1 ring-white/10">
-          <table className="type-table resizable-table min-w-[760px] text-left">
+          <table className="dark-audit-table type-table resizable-table min-w-[760px] text-left">
             <thead className="text-white/48">
               <tr>
                 <th className="px-3 py-2 font-semibold">物料</th>

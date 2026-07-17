@@ -16,7 +16,7 @@ import {
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { CanonicalBomRow } from "@/types/bom";
-import { CostComparison, MaterialComparisonItem, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { CostComparison, getComparisonObjectLabel, MaterialComparisonItem, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 import { isRollupCostRow, isSummaryCostItem } from "@/lib/bom/normalize";
 import {
   getCostCategoryColor,
@@ -79,11 +79,11 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h2 className="type-panel-title text-ink">
-                {selectedCategory ? `${selectedCategory}供应商报价` : "供应商报价"}
+                {selectedCategory ? `${selectedCategory}报价对象总价` : "报价对象总价"}
               </h2>
-              <p className="type-caption mt-1 text-slate-500">按当前筛选汇总供应商 BOM 金额</p>
+              <p className="type-caption mt-1 text-slate-500">按对比对象汇总核验总价，优先使用出厂价。</p>
             </div>
-            <span className="type-caption text-slate-500">点击柱子查看来源</span>
+            <span className="type-caption text-slate-500">点击查看明细来源</span>
           </div>
           <div className={CHART_SHELL_CLASS}>
             <div className="mb-2 grid max-h-[132px] gap-2 overflow-auto pr-1 sm:grid-cols-2 2xl:grid-cols-3">
@@ -94,8 +94,8 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
                   className={`motion-lift flex items-center justify-between ${SURFACE_RADIUS} border border-slate-200/80 bg-white/82 px-3 py-2.5 text-left text-[13px] active:scale-[0.99]`}
                   onClick={() =>
                     onInspectRows(
-                      comparison.filteredRows.filter((row) => row.supplierName === supplier.supplierName),
-                      `${selectedCategory || "供应商"}报价来源：${supplier.supplierName}`
+                      comparison.filteredRows.filter((row) => getComparisonObjectLabel(row) === supplier.supplierName),
+                      `${selectedCategory || "报价对象"}来源：${supplier.supplierName}`
                     )
                   }
                 >
@@ -122,8 +122,8 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
                   onClick={(data) => {
                     const supplierName = String(data.supplierName ?? "");
                     onInspectRows(
-                      comparison.filteredRows.filter((row) => row.supplierName === supplierName),
-                      `${selectedCategory || "供应商"}报价来源：${supplierName}`
+                      comparison.filteredRows.filter((row) => getComparisonObjectLabel(row) === supplierName),
+                      `${selectedCategory || "报价对象"}来源：${supplierName}`
                     );
                   }}
                 >
@@ -156,10 +156,10 @@ export function CostDashboard({ comparison, selectedCategory, onInspectRows }: P
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="type-panel-title text-ink">
-              {selectedCategory ? `${selectedCategory}物料供应商对比` : "全量物料供应商对比"}
+              {selectedCategory ? `${selectedCategory}物料金额对比` : "全量物料金额对比"}
             </h2>
             <p className="type-caption text-slate-500">
-              按物料名称完全一致合并，动态支持多家供应商报价列；点击任意行查看来源明细。
+              按标准物料名和手工校准结果合并；金额口径为 BOM 用量 × 单价。
             </p>
           </div>
           <span className="type-caption text-slate-500">{comparison.materialComparisons.length} 个物料</span>
@@ -183,10 +183,10 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
         <div>
           <h2 className="type-panel-title text-ink">总成本对比</h2>
           <p className="type-caption text-slate-500">
-            {selectedCategory ? `当前筛选品类：${selectedCategory}，总成本仍按供应商 BOM 口径核验` : "材料、人工/管理/利润与出厂价的供应商横向对比"}
+            {selectedCategory ? `当前正在查看 ${selectedCategory}，总成本仍按完整 BOM 报价口径展示。` : "拆分材料、人工/管理/利润和出厂价，核对报价口径是否一致。"}
           </p>
         </div>
-        <span className="type-caption text-slate-500">悬停查看差值，点击柱子查看来源</span>
+        <span className="type-caption text-slate-500">悬停看差值，点击看来源</span>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
@@ -249,7 +249,7 @@ function TotalCostComparison({ comparison, selectedCategory, onInspectRows }: Pr
               {totalRows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                    暂无可对比的总成本数据。
+                    暂无总成本数据。请确认 BOM 中是否包含材料合计、人工/管理/利润或出厂价。
                   </td>
                 </tr>
               )}
@@ -266,11 +266,12 @@ function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows
     const groups = new Map<string, CanonicalBomRow[]>();
     comparison.filteredRows.forEach((row) => {
       if (!isVisualCostRow(row)) return;
-      const group = groups.get(row.supplierName);
+      const comparisonLabel = getComparisonObjectLabel(row);
+      const group = groups.get(comparisonLabel);
       if (group) {
         group.push(row);
       } else {
-        groups.set(row.supplierName, [row]);
+        groups.set(comparisonLabel, [row]);
       }
     });
     return groups;
@@ -284,13 +285,13 @@ function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows
     <section className={PANEL_CLASS}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 className="type-panel-title text-ink">供应商成本结构占比</h2>
+          <h2 className="type-panel-title text-ink">成本结构占比</h2>
           <p className="type-caption mt-1 text-slate-500">
-            {selectedCategory ? `按供应商查看 ${selectedCategory} 下物料金额占比` : "按供应商分别查看各品类占总成本比例"}
+            {selectedCategory ? `查看 ${selectedCategory} 下各物料在对应报价中的金额占比。` : "按报价对象查看各品类占比，快速定位成本结构差异。"}
           </p>
         </div>
         <span className={`type-caption ${SURFACE_RADIUS} bg-slate-50/80 px-2 py-1 font-semibold text-slate-500 ring-1 ring-slate-200/80`}>
-          {comparison.activeSuppliers.length} 家供应商
+          {comparison.activeSuppliers.length} 个对象
         </span>
       </div>
 
@@ -313,7 +314,7 @@ function SupplierCostStructurePies({ comparison, selectedCategory, onInspectRows
           />
         ))}
       </div>
-      {comparison.activeSuppliers.length === 0 && <p className="text-xs text-slate-500">上传供应商 BOM 后可查看成本结构占比。</p>}
+      {comparison.activeSuppliers.length === 0 && <p className="text-xs text-slate-500">上传供应商报价后，这里会按报价对象展示成本结构。</p>}
     </section>
   );
 }
@@ -374,7 +375,7 @@ function SupplierPieCard({
           </PieChart>
         </ResponsiveContainer>
       </div>
-      {pieRows.length === 0 && <p className="mt-2 text-xs text-slate-500">当前筛选范围内暂无该供应商占比数据。</p>}
+      {pieRows.length === 0 && <p className="mt-2 text-xs text-slate-500">当前筛选范围内暂无该报价对象的占比数据。</p>}
     </div>
   );
 }
@@ -475,7 +476,7 @@ function buildAuditedTotalAmounts(comparison: CostComparison): Record<string, nu
 }
 
 function getTotalCostSourceRows(comparison: CostComparison, supplier: string, costItem: string): CanonicalBomRow[] {
-  const supplierRows = comparison.filteredRows.filter((row) => row.supplierName === supplier);
+  const supplierRows = comparison.filteredRows.filter((row) => getComparisonObjectLabel(row) === supplier);
   if (costItem === "材料成本合计") {
     return supplierRows.filter((row) => normalizeCostCategory(row.category, row.materialName) === "材料成本合计" || isVisualCostRow(row));
   }
@@ -580,10 +581,31 @@ function getFlatBarSize(barCount: number) {
   return 16;
 }
 
-function getSupplierShortName(name: string) {
+function getSupplierShortName(name: string, comparisonNames: string[] = [name]) {
   const trimmed = name.trim();
   if (!trimmed) return "";
-  const compact = trimmed
+  const { supplierName, quoteDescriptor } = splitComparisonName(trimmed);
+  const comparisonSupplierNames = comparisonNames.map((item) => splitComparisonName(item).supplierName).filter(Boolean);
+  const uniqueSupplierCount = new Set(comparisonSupplierNames).size;
+  const sameSupplierCount = comparisonSupplierNames.filter((item) => item === supplierName).length;
+  const supplierShort = shortenSupplierName(supplierName);
+  const quoteShort = shortenQuoteDescriptor(quoteDescriptor);
+  if (uniqueSupplierCount <= 1) return quoteShort || supplierShort;
+  if (sameSupplierCount > 1 && quoteShort) return `${supplierShort}${quoteShort}`.slice(0, 8);
+  return supplierShort;
+}
+
+function splitComparisonName(value: string) {
+  const [supplierName = "", quoteDescriptor = ""] = value.split("｜");
+  return {
+    supplierName: supplierName.trim() || value.trim(),
+    quoteDescriptor: quoteDescriptor.trim()
+  };
+}
+
+function shortenSupplierName(name: string) {
+  const compact = name
+    .trim()
     .replace(/\s+/g, "")
     .replace(/(有限公司|有限责任公司|股份有限公司|集团|公司|工厂|厂|科技|实业|照明|电器|电子|供应链|贸易)$/g, "");
   const modelMatch = compact.match(/([A-Za-z]*\d[\w.-]*|\d[\w.-]*|[A-Za-z]+\d[\w.-]*)$/);
@@ -596,6 +618,47 @@ function getSupplierShortName(name: string) {
   if (/^[A-Za-z0-9_.-]+$/.test(compact)) return compact.length <= 6 ? compact : compact.slice(0, 6);
 
   return compact.slice(0, 6);
+}
+
+function shortenQuoteDescriptor(value: string) {
+  const compact = value
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/(产品|报价|成本|BOM|bom)/g, "");
+  if (!compact) return "";
+
+  const modelMatches = Array.from(compact.matchAll(/[A-Za-z]*\d[\w.-]*|第?\d+代|\d+\s*(寸|吋|inch|in)|[A-Za-z]+\d[\w.-]*/gi)).map((match) =>
+    match[0].replace(/\s+/g, "")
+  );
+  const colorMatches = Array.from(compact.matchAll(/白色?|黑色?|金色?|银色?|灰色?|红色?|蓝色?|绿色?|黄色?|粉色?|紫色?|橙色?|透明|磨砂|white|black|gold|silver|gray|grey/gi)).map((match) =>
+    normalizeColorShort(match[0])
+  );
+  const model = modelMatches.at(-1) ?? "";
+  const color = colorMatches.at(-1) ?? "";
+  const modelColor = `${model}${color}`;
+  if (modelColor) return modelColor.slice(0, 8);
+
+  const usefulTail = compact.replace(/^[\u4e00-\u9fa5]{2,6}(灯|台灯|吊灯|吸顶灯|风扇灯)?/, "");
+  return (usefulTail || compact).slice(0, 6);
+}
+
+function normalizeColorShort(value: string) {
+  const text = value.toLowerCase();
+  if (/白|white/.test(text)) return "白";
+  if (/黑|black/.test(text)) return "黑";
+  if (/金|gold/.test(text)) return "金";
+  if (/银|silver/.test(text)) return "银";
+  if (/灰|gray|grey/.test(text)) return "灰";
+  if (/红/.test(text)) return "红";
+  if (/蓝/.test(text)) return "蓝";
+  if (/绿/.test(text)) return "绿";
+  if (/黄/.test(text)) return "黄";
+  if (/粉/.test(text)) return "粉";
+  if (/紫/.test(text)) return "紫";
+  if (/橙/.test(text)) return "橙";
+  if (/透明/.test(text)) return "透";
+  if (/磨砂/.test(text)) return "砂";
+  return value.slice(0, 1);
 }
 
 function makeAsciiAbbreviation(value: string) {
@@ -636,7 +699,7 @@ function buildFlatCategoryChartRows(comparison: CostComparison): FlatCategoryCha
     const rows: FlatCategoryChartRow[] = values.map((point, visibleIndex) => {
       const diffAmount = min > 0 ? point.value - min : 0;
       const diffRate = min > 0 ? diffAmount / min : 0;
-      const supplierShort = getSupplierShortName(point.supplier);
+      const supplierShort = getSupplierShortName(point.supplier, comparison.activeSuppliers);
       const categoryTick = visibleIndex === middleIndex ? category : "";
 
       return {
@@ -649,7 +712,7 @@ function buildFlatCategoryChartRows(comparison: CostComparison): FlatCategoryCha
         diffAmount,
         diffRate,
         diffLabel: diffAmount > 0 ? `+${formatPercent(diffRate)}` : "",
-        rows: categoryRow.rows.filter((row) => row.supplierName === point.supplier),
+        rows: categoryRow.rows.filter((row) => getComparisonObjectLabel(row) === point.supplier),
         fill: getCostCategorySeriesColor(category, point.supplierIndex)
       };
     });
@@ -696,9 +759,9 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
       <div className="mb-3 flex items-center justify-between">
         <div>
           <h2 className="type-panel-title text-ink">品类成本对比</h2>
-          <p className="type-caption mt-1 text-slate-500">用于快速定位成本结构差异</p>
+          <p className="type-caption mt-1 text-slate-500">同一品类内并列比较各报价对象的金额。</p>
         </div>
-        <span className="type-caption text-slate-500">横坐标为品类，柱子为供应商</span>
+        <span className="type-caption text-slate-500">颜色代表品类，标签显示报价对象</span>
       </div>
       <div className={CHART_SHELL_CLASS}>
         <ChartFrame height={chartHeight} minHeight={260} maxHeight={620} minWidth={chartWidth ? undefined : chartMinWidth} width={chartWidth}>
@@ -742,7 +805,7 @@ function CategoryChart({ comparison, onInspectRows }: Omit<Props, "selectedCateg
         </ChartFrame>
       </div>
       {!showDiffLabels && (
-        <p className="mt-2 type-caption text-slate-500">品类或供应商较多时已收起柱顶差异数字，悬停柱子可查看差值和百分比。</p>
+        <p className="mt-2 type-caption text-slate-500">数据较密时自动收起柱顶数字；悬停柱子仍可查看差值和百分比。</p>
       )}
     </section>
   );
@@ -784,9 +847,9 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
       <div className="mb-3 flex items-center justify-between">
         <div>
           <h2 className="type-panel-title text-ink">{selectedCategory}物料金额对比</h2>
-          <p className="type-caption mt-1 text-slate-500">按 BOM 用量 × 单价后的实际金额比较供应商成本</p>
+          <p className="type-caption mt-1 text-slate-500">比较该品类下每个物料的实际成本金额。</p>
         </div>
-        <span className="type-caption text-slate-500">横坐标为物料，柱子为供应商</span>
+        <span className="type-caption text-slate-500">规格不显示在图上，保留在明细表</span>
       </div>
       <div className={CHART_SHELL_CLASS}>
         <ChartFrame height={chartHeight} minHeight={280} maxHeight={660} minWidth={chartWidth ? undefined : chartMinWidth} width={chartWidth}>
@@ -837,10 +900,10 @@ function MaterialChart({ comparison, selectedCategory, onInspectRows }: Props) {
         />
       </div>
       {!showDiffLabels && (
-        <p className="mt-2 type-caption text-slate-500">物料数量较多时已收起柱顶差异数字，悬停柱子可查看差值和百分比。</p>
+        <p className="mt-2 type-caption text-slate-500">物料较多时自动收起柱顶数字；悬停柱子查看差值和百分比。</p>
       )}
       {comparison.materialComparisons.length > chartRows.length && (
-        <p className="mt-2 text-xs text-slate-500">图表显示差异最大的前 {maxChartItems} 个物料，完整物料仍在下方表格中。</p>
+        <p className="mt-2 text-xs text-slate-500">图表仅展示差异最大的前 {maxChartItems} 个物料；完整清单见下方表格。</p>
       )}
     </section>
   );
@@ -931,7 +994,7 @@ function MaterialComparisonTable({ comparison, onInspectRows }: Props) {
           {rows.length === 0 && (
             <tr>
               <td colSpan={suppliers.length + 9} className="px-3 py-6 text-center text-sm text-slate-500">
-                当前筛选范围内没有可对比物料。
+                当前筛选范围内暂无可对比物料。请检查品类筛选或在手工校准中合并同类物料。
               </td>
             </tr>
           )}

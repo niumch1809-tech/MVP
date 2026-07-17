@@ -67,7 +67,7 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
       <div className="flex flex-col gap-2 border-b border-slate-200/80 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="type-panel-title text-ink">完整成本对比表</h3>
-          <p className="type-caption text-slate-500">先按标准分类合计，再展开可追溯明细；差值按第二个对比对象减第一个。</p>
+          <p className="type-caption text-slate-500">先看分类合计，再展开物料明细；差值默认按第二个对比对象减第一个。</p>
         </div>
         <span className="type-caption rounded-[12px] bg-white/82 px-3 py-1 font-semibold text-slate-600 ring-1 ring-slate-200/80">
           {comparison.materialComparisons.length} 个物料 / {suppliers.length} 个对比对象
@@ -162,7 +162,7 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
             {rows.length === 0 && (
               <tr>
                 <td colSpan={suppliers.length * 2 + 6} className="px-3 py-10 text-center text-sm text-slate-500">
-                  当前没有可输出的整合对比数据。
+                  当前没有可输出数据。请先上传报价 BOM，并确认至少有一个可比较物料。
                 </td>
               </tr>
             )}
@@ -177,7 +177,7 @@ function buildSummaryRows(comparison: CostComparison) {
   return [
     {
       label: "材料成本合计",
-      note: "优先使用表内合计，否则由明细汇总",
+      note: "优先使用表内材料合计，否则由明细汇总",
       amounts: comparison.totals.materialTotals
     },
     {
@@ -187,7 +187,7 @@ function buildSummaryRows(comparison: CostComparison) {
     },
     {
       label: "出厂价",
-      note: "来自 BOM/报价表中的出厂价字段或行",
+      note: "来自 BOM/报价表中的最终报价或出厂价",
       amounts: comparison.totals.factoryPriceTotals
     }
   ].map((row) => {

@@ -12,6 +12,7 @@ import {
   parseMaterialDescriptor,
   toNumber
 } from "./normalize";
+import { findStructuredQuoteTitle, parseQuoteIdentity } from "./quote-identity";
 
 type ParseInput = {
   fileId: string;
@@ -26,19 +27,12 @@ type ParseInput = {
 type ParsedSheet = {
   sheetName: string;
   sheetIndex: number;
+  quoteTitle: string;
   headerRowIndex: number;
   headers: string[];
   rows: Record<string, unknown>[];
   fieldMapping: BomFieldMapping;
   warnings: string[];
-};
-
-type QuoteIdentity = {
-  supplierName: string;
-  productName: string;
-  productModel: string;
-  productColor: string;
-  quoteName: string;
 };
 
 const REQUIRED_FIELDS: Array<keyof BomFieldMapping> = ["materialName", "quantity", "unitPrice"];
@@ -94,7 +88,7 @@ export function parseBomWorkbook(input: ParseInput): BomFileRecord {
   return {
     id: input.fileId,
     fileName: input.fileName,
-    productName: input.productName,
+    productName: rows.find((row) => row.productName)?.productName ?? input.productName,
     supplierName: hasMultipleSheets ? `${input.supplierName}（多工作表）` : rows[0]?.supplierName ?? input.supplierName,
     kind: input.kind,
     uploadedAt: new Date().toISOString(),
@@ -108,6 +102,7 @@ export function parseBomWorkbook(input: ParseInput): BomFileRecord {
 
 function resolveQuoteName(input: ParseInput, parsedSheet: ParsedSheet, hasMultipleSheets: boolean): string {
   const sheetName = parsedSheet.sheetName.trim();
+  if (parsedSheet.quoteTitle) return parsedSheet.quoteTitle;
   if (!hasMultipleSheets) {
     return input.supplierName;
   }
@@ -241,6 +236,7 @@ function readSheet(workbook: XLSX.WorkBook, sheetName: string, sheetIndex: numbe
   });
 
   const headerRowIndex = findHeaderRow(matrix);
+  const quoteTitle = findStructuredQuoteTitle(matrix, headerRowIndex);
   const headers = makeUniqueHeaders(matrix[headerRowIndex] ?? []);
   const fieldMapping = mapHeader(headers);
   const rows = fillMergedCategoryValues(matrix
@@ -252,6 +248,9 @@ function readSheet(workbook: XLSX.WorkBook, sheetName: string, sheetIndex: numbe
   if (headerRowIndex > 0) {
     warnings.push(`自动跳过前 ${headerRowIndex} 行说明/空行，从第 ${headerRowIndex + 1} 行识别表头。`);
   }
+  if (quoteTitle) {
+    warnings.push(`识别到报价标题：${quoteTitle}，已按“供应商-产品名-型号-颜色”拆分。`);
+  }
   if (Object.keys(fieldMapping).length === 0) {
     warnings.push("未能识别标准 BOM 字段，请检查表头是否在第一张表中。");
   }
@@ -259,6 +258,7 @@ function readSheet(workbook: XLSX.WorkBook, sheetName: string, sheetIndex: numbe
   return {
     sheetName,
     sheetIndex,
+    quoteTitle,
     headerRowIndex,
     headers,
     rows,
@@ -431,20 +431,6 @@ function getValue(row: Record<string, unknown>, key?: string): unknown {
 
 function getString(row: Record<string, unknown>, key?: string): string {
   return String(getValue(row, key) ?? "").trim();
-}
-
-function parseQuoteIdentity(rawValue: string, fallbackSupplier: string, fallbackProduct: string): QuoteIdentity {
-  const quoteName = rawValue.trim();
-  const parts = quoteName.split(/\s*[-–—_]\s*/).map((part) => part.trim()).filter(Boolean);
-  const hasStructuredTitle = parts.length >= 3;
-
-  return {
-    supplierName: hasStructuredTitle ? parts[0] : fallbackSupplier,
-    productName: hasStructuredTitle ? parts[1] : fallbackProduct,
-    productModel: hasStructuredTitle ? parts[2] : "",
-    productColor: hasStructuredTitle ? parts.slice(3).join("-") : "",
-    quoteName
-  };
 }
 
 function roundMoney(value: number): number {
