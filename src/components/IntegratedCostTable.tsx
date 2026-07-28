@@ -66,11 +66,11 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
     <div className="app-surface w-full min-w-0 max-w-full overflow-hidden rounded-[20px]">
       <div className="flex flex-col gap-2 border-b border-slate-200/80 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="type-panel-title text-ink">完整成本对比表</h3>
-          <p className="type-caption text-slate-500">先看分类合计，再展开物料明细；差值默认按第二个对比对象减第一个。</p>
+          <h3 className="type-panel-title text-ink">完整成本对比</h3>
+          <p className="type-caption text-slate-500">先看品类合计，再看每项物料；差值按第二份报价减第一份。</p>
         </div>
         <span className="type-caption rounded-[12px] bg-white/82 px-3 py-1 font-semibold text-slate-600 ring-1 ring-slate-200/80">
-          {comparison.materialComparisons.length} 个物料 / {suppliers.length} 个对比对象
+          {comparison.materialComparisons.length} 个物料 / {suppliers.length} 份报价
         </span>
       </div>
 
@@ -96,7 +96,7 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
               <SortHeader label="差值" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
               <SortHeader label="百分比" active={sortKey === "diffRate"} direction={sortDirection} align="right" onClick={() => toggleSort("diffRate")} />
               <SortHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
-              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold">追溯</th>
+              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold">明细</th>
             </tr>
           </thead>
           <tbody>
@@ -139,7 +139,7 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
             ))}
             {buildSummaryRows(comparison).map((item) => (
               <tr key={item.label} className="border-b border-slate-100 bg-ink text-white">
-                <td className="whitespace-nowrap px-3 py-2">总计核验</td>
+                <td className="whitespace-nowrap px-3 py-2">合计检查</td>
                 <td className="whitespace-nowrap px-3 py-2 font-semibold">{item.label}</td>
                 {suppliers.map((supplier) => (
                   <Fragment key={supplier}>

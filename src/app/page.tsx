@@ -3,11 +3,14 @@
 import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
 import { BomTable } from "@/components/BomTable";
 import { CostDashboard } from "@/components/CostDashboard";
+import { DetailsDialog } from "@/components/DetailsDialog";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
 import { ManualAdjustmentBoard } from "@/components/ManualAdjustmentBoard";
 import type { ManualGroup } from "@/components/ManualAdjustmentBoard";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
 import { ResultReport } from "@/components/ResultReport";
+import { SingleBomAnalysis } from "@/components/SingleBomAnalysis";
+import { WorkspaceInteractionLayer } from "@/components/WorkspaceInteractionLayer";
 import { parseBomFileInBrowser } from "@/lib/bom/browser-parser";
 import { buildCostComparison, CostFilters, getComparisonObjectLabel, normalizeCostCategory } from "@/lib/bom/cost-comparison";
 import { getMaterialPriceComparisons } from "@/lib/bom/material-price";
@@ -31,15 +34,58 @@ type DetailSelection = {
   rows: CanonicalBomRow[];
 };
 
-type WorkspaceView = "upload" | "adjust" | "compare" | "details" | "report" | "output";
+type WorkspaceView = "upload" | "adjust" | "single" | "compare" | "details" | "report" | "output";
 
-const NAV_ITEMS: Array<{ id: WorkspaceView; label: string; eyebrow: string }> = [
-  { id: "upload", label: "数据上传", eyebrow: "01" },
-  { id: "adjust", label: "手工校准", eyebrow: "02" },
-  { id: "compare", label: "报价对比图", eyebrow: "03" },
-  { id: "details", label: "数据明细", eyebrow: "04" },
-  { id: "report", label: "结果报告", eyebrow: "05" },
-  { id: "output", label: "数据输出", eyebrow: "06" }
+type WorkspaceModule = "prepare" | "analysis" | "verify" | "deliver";
+
+const VIEW_META: Record<WorkspaceView, { label: string; description: string; steps: string[] }> = {
+  upload: {
+    label: "上传文件",
+    description: "把供应商报价或历史 BOM 放进来，系统会自动整理。",
+    steps: ["可以一次选择多个 Excel 或 CSV。", "供应商和产品信息会优先从模板标题或文件名识别。", "导入后先到“整理物料”检查结果。"]
+  },
+  adjust: {
+    label: "整理物料",
+    description: "检查物料归类，把不同叫法整理到一起。",
+    steps: ["先选择一家供应商。", "直接修改品类，或把物料拖到右侧品类。", "只需处理明显不一致的项目，其余结果会自动保存。"]
+  },
+  single: {
+    label: "单份成本",
+    description: "看清一份报价的钱花在哪里，以及合计是否一致。",
+    steps: ["选择一份报价。", "点击成本结构中的品类，可在当前页查看该品类的物料金额与占比。", "需要追溯原始内容时，再点击下方物料表。"]
+  },
+  compare: {
+    label: "多份比较",
+    description: "比较不同供应商、产品或型号的成本差别。",
+    steps: ["勾选需要比较的报价。", "点击品类图或成本结构图，可在当前页继续查看物料金额与占比。", "需要追溯原始内容时，再点击下方物料表。"]
+  },
+  details: {
+    label: "明细检查",
+    description: "查看每条物料，处理需要确认的数据和参考价差异。",
+    steps: ["先用顶部条件找到目标物料。", "点击“待检查”或“原始内容”展开详情。", "修改后会重新检查数量、单价和金额。"]
+  },
+  report: {
+    label: "分析结论",
+    description: "快速了解谁更便宜、差异在哪里、先谈哪些项目。",
+    steps: ["先看推荐结论和可节省金额。", "按品类和物料的优先级准备谈价。", "数据不完整时，系统会先建议补齐而不是直接选供应商。"]
+  },
+  output: {
+    label: "导出结果",
+    description: "选择沟通对象，生成可以直接核对和讨论的表格。",
+    steps: ["选择准备沟通的供应商。", "导出的物料名优先采用该供应商的叫法。", "核价表保留规格、差值、品类合计和最终报价。"]
+  }
+};
+
+const WORKSPACE_MODULES: Array<{
+  id: WorkspaceModule;
+  label: string;
+  eyebrow: string;
+  views: WorkspaceView[];
+}> = [
+  { id: "prepare", label: "准备报价", eyebrow: "01", views: ["upload", "adjust"] },
+  { id: "analysis", label: "查看成本", eyebrow: "02", views: ["single", "compare"] },
+  { id: "verify", label: "检查明细", eyebrow: "03", views: ["details"] },
+  { id: "deliver", label: "结论与导出", eyebrow: "04", views: ["report", "output"] }
 ];
 
 export default function Home() {
@@ -69,6 +115,8 @@ export default function Home() {
   });
   const [outputNameSupplier, setOutputNameSupplier] = useState("");
   const [detailSelection, setDetailSelection] = useState<DetailSelection | null>(null);
+  const [isViewHelpOpen, setIsViewHelpOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [, startFilterTransition] = useTransition();
 
   const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
@@ -92,9 +140,6 @@ export default function Home() {
     () => Object.fromEntries((marketPriceResult?.comparisons ?? []).map((item) => [item.rowId, item])),
     [marketPriceResult]
   );
-  const selectedSupplierLabel =
-    filters.supplierNames.length === 0 ? "全部对比对象" : filters.supplierNames.join(" / ");
-
   const refresh = useCallback(() => {
     setRecords(loadLocalRecords());
     setManualCategories(loadLocalArray<string>(LOCAL_MANUAL_CATEGORIES_KEY));
@@ -104,6 +149,10 @@ export default function Home() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  function toggleSidebar() {
+    setIsSidebarOpen((current) => !current);
+  }
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -253,6 +302,39 @@ export default function Home() {
     });
   }
 
+  function focusCostDashboard() {
+    window.setTimeout(() => {
+      document.getElementById("cost-dashboard-focus")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 0);
+  }
+
+  function selectChartCategory(category: string) {
+    startFilterTransition(() => {
+      setFilters((current) => ({ ...current, category, materialQuery: "" }));
+      setDetailSelection(null);
+    });
+    focusCostDashboard();
+  }
+
+  function selectChartMaterial(materialName: string) {
+    startFilterTransition(() => {
+      setFilters((current) => ({ ...current, materialQuery: materialName }));
+      setDetailSelection(null);
+    });
+    focusCostDashboard();
+  }
+
+  function selectChartSupplier(supplierName: string) {
+    startFilterTransition(() => {
+      setFilters((current) => ({ ...current, supplierNames: [supplierName] }));
+      setDetailSelection(null);
+    });
+    focusCostDashboard();
+  }
+
   function setSupplierChecked(nextSupplierName: string, checked: boolean) {
     const allSuppliers = comparison.suppliers;
     startFilterTransition(() => {
@@ -289,7 +371,7 @@ export default function Home() {
     if (issueRows.length === 0) return;
     setDetailSelection({
       rows: issueRows,
-      title: `异常数据行：${issueRows.length} 行 / ${issueCount} 个问题`
+      title: `待检查：${issueRows.length} 行 / ${issueCount} 个问题`
     });
     setActiveView("details");
   }
@@ -344,14 +426,6 @@ export default function Home() {
     setPriceSourceMessage("已清空上传价格表，将使用 URL 网页/API 或内置近期原材料参考库。");
   }
 
-  function exportRawCsv() {
-    downloadCsv(toRawCsv(comparison.filteredRows, marketPriceByRowId), `bom-source-rows-${today()}.csv`);
-  }
-
-  function exportComparisonCsv() {
-    downloadCsv(toComparisonCsv(comparison, outputNameSupplier), `bom-integrated-comparison-${today()}.csv`);
-  }
-
   function exportTemplateExcel() {
     const data = buildTemplateOutputArray(comparison, outputNameSupplier);
     downloadBinary(
@@ -361,37 +435,59 @@ export default function Home() {
     );
   }
 
-  const activeNavItem = NAV_ITEMS.find((item) => item.id === activeView) ?? NAV_ITEMS[0];
+  const activeModule =
+    WORKSPACE_MODULES.find((module) => module.views.includes(activeView)) ??
+    WORKSPACE_MODULES[0];
+  const activeViewMeta = VIEW_META[activeView];
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-transparent">
-      <div className="page-shell mx-auto grid w-full max-w-[1540px] gap-4 px-3 py-3 sm:px-4 sm:py-4 lg:grid-cols-[264px_minmax(0,1fr)]">
-        <aside className="reveal-in lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
-          <div className="sidebar-shell flex h-full flex-col rounded-[24px] p-3">
-            <div className="brand-panel rounded-[20px] p-5 text-white">
-              <div className="type-micro mb-7 inline-flex rounded-[10px] bg-white/10 px-2.5 py-1 text-white/76">
-                MVP 半自动
-              </div>
-              <h1 className="type-brand-title text-balance">AI 成本核验平台</h1>
-              <p className="type-body mt-3 text-white/62">多供应商 BOM 报价核验工作台</p>
+    <main
+      className="min-h-screen overflow-x-hidden bg-transparent"
+      data-workspace-root
+      data-workspace-view={activeView}
+    >
+      <WorkspaceInteractionLayer />
+      <button
+        type="button"
+        className={`sidebar-floating-toggle ${isSidebarOpen ? "is-open" : ""}`}
+        onClick={toggleSidebar}
+        aria-label={isSidebarOpen ? "关闭导航栏" : "打开导航栏"}
+        aria-expanded={isSidebarOpen}
+        aria-controls="workspace-sidebar-panel"
+        title={isSidebarOpen ? "关闭导航栏" : "打开导航栏"}
+      >
+        <span aria-hidden="true">{isSidebarOpen ? "‹" : "›"}</span>
+      </button>
+      <div
+        className={`page-shell mx-auto grid w-full max-w-[1680px] gap-4 px-3 py-3 sm:px-4 sm:py-4 ${isSidebarOpen ? "sidebar-open" : ""}`}
+      >
+        <aside className="workspace-sidebar" aria-label="主导航">
+          <div id="workspace-sidebar-panel" className="sidebar-shell reveal-in flex flex-col rounded-[24px] p-3">
+            <div className="brand-panel rounded-[14px] p-5 text-white">
+              <h1 className="type-brand-title text-balance">AI 成本核验</h1>
+              <p className="type-body mt-2 text-white/64">把多份 BOM 变成清晰的成本结论</p>
             </div>
 
             <nav className="mt-3 grid gap-1" aria-label="工作流导航">
-              {NAV_ITEMS.map((item) => {
-                const active = activeView === item.id;
+              {WORKSPACE_MODULES.map((module) => {
+                const active = module.id === activeModule.id;
                 return (
                   <button
-                    key={item.id}
+                    key={module.id}
                     type="button"
-                    onClick={() => setActiveView(item.id)}
+                    onClick={() => {
+                      if (!active) setActiveView(module.views[0]);
+                      setIsSidebarOpen(false);
+                    }}
                     data-active={active}
-                    className={`nav-row group flex cursor-pointer items-center justify-between rounded-[16px] px-4 py-3 pl-5 text-left transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.99] ${
-                      active ? "bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)]" : "text-slate-600 hover:bg-white/88 hover:text-slate-950"
+                    aria-label={module.label}
+                    className={`nav-row group flex cursor-pointer items-center justify-between rounded-[10px] px-4 py-3 pl-5 text-left transition duration-200 active:scale-[0.99] ${
+                      active ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                     }`}
                   >
                     <span className="flex items-center gap-3">
-                      <span className={`type-micro ${active ? "text-white/50" : "text-slate-400"}`}>{item.eyebrow}</span>
-                      <span className="type-nav">{item.label}</span>
+                      <span className={`type-micro ${active ? "text-white/50" : "text-slate-400"}`}>{module.eyebrow}</span>
+                      <span className="type-nav">{module.label}</span>
                     </span>
                     <span className={`h-2 w-2 rounded-full ${active ? "bg-sky-300" : "bg-slate-300 group-hover:bg-slate-500"}`} />
                   </button>
@@ -399,57 +495,72 @@ export default function Home() {
               })}
             </nav>
 
-            <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
-              <MiniStat label="对比对象" value={comparison.suppliers.length.toString()} />
+            <div className="sidebar-stats mt-5 grid grid-cols-2 gap-2">
+              <MiniStat label="报价" value={comparison.suppliers.length.toString()} />
               <MiniStat label="物料" value={comparison.materialComparisons.length.toString()} />
-              <MiniStat label="明细行" value={comparison.filteredRows.length.toString()} />
-              <MiniStat label="异常行" value={issueRows.length.toString()} tone={issueCount > 0 ? "danger" : "normal"} onClick={showIssueRows} />
+              <MiniStat label="明细" value={comparison.filteredRows.length.toString()} />
+              <MiniStat label="待检查" value={issueRows.length.toString()} tone={issueCount > 0 ? "danger" : "normal"} onClick={showIssueRows} />
             </div>
           </div>
         </aside>
 
-        <section className="grid min-w-0 max-w-full auto-rows-max content-start gap-4 overflow-hidden">
-          <header className="page-header reveal-in h-fit min-h-0 overflow-hidden rounded-[22px] px-4 py-3">
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-              <div>
-                {activeView !== "upload" && (
-                  <div className="type-caption flex flex-wrap items-center gap-2">
-                    <span className="rounded-[12px] border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-accent">
-                      <span className="status-pulse mr-2 inline-block h-2 w-2 rounded-full bg-accent text-accent" />
-                      本地运行中
-                    </span>
-                    <span className="rounded-[12px] border border-slate-200 bg-white/70 px-3 py-1 font-semibold text-slate-600">
-                      {selectedSupplierLabel}
-                    </span>
-                    <span className="rounded-[12px] border border-slate-200 bg-white/70 px-3 py-1 font-semibold text-slate-600">
-                      {filters.productName || "全部产品"}
-                    </span>
-                    <span className="rounded-[12px] border border-slate-200 bg-white/70 px-3 py-1 font-semibold text-slate-600">
-                      {filters.category || "全部品类"}
-                    </span>
-                  </div>
-                )}
-                <h2
-                  className={`type-page-title text-ink ${
-                    activeView === "upload" ? "" : "mt-2"
-                  }`}
+        <section className="workspace-content grid min-w-0 max-w-full auto-rows-max content-start gap-4 overflow-hidden">
+          <header className="page-header reveal-in flex h-fit min-h-0 items-center overflow-hidden px-4 py-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              {activeModule.views.length > 1 ? (
+                <div
+                  className="workspace-title-switcher inline-flex max-w-full gap-1 overflow-x-auto rounded-[12px] border border-slate-300 bg-slate-100/90 p-1.5"
+                  role="tablist"
+                  aria-label={`${activeModule.label}子页面`}
                 >
-                  {activeNavItem.label}
-                </h2>
-              </div>
-              <div className="type-caption grid grid-cols-3 gap-2 text-center text-slate-500">
-                <MetricCell compact={activeView === "upload"} label="文件" value={records.length.toString()} />
-                <MetricCell compact={activeView === "upload"} label="可比物料" value={comparison.materialComparisons.length.toString()} />
-                <MetricCell
-                  compact={activeView === "upload"}
-                  label="异常"
-                  value={issueCount.toString()}
-                  tone={issueCount > 0 ? "danger" : "normal"}
-                  onClick={showIssueRows}
-                />
-              </div>
+                  {activeModule.views.map((view) => {
+                    const active = activeView === view;
+                    return (
+                      <button
+                        key={view}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setActiveView(view)}
+                        className={`min-w-[132px] cursor-pointer whitespace-nowrap rounded-[9px] px-5 py-2.5 font-bold transition duration-200 ${
+                          active
+                            ? "bg-slate-950 text-[1.2rem] text-white shadow-[0_5px_14px_rgba(15,23,42,0.18)]"
+                            : "text-[0.92rem] text-slate-500 hover:bg-white hover:text-slate-900"
+                        }`}
+                      >
+                        {VIEW_META[view].label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <h2 className="type-page-title text-ink">{activeViewMeta.label}</h2>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsViewHelpOpen(true)}
+                className="cursor-pointer rounded-[8px] border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-ink"
+              >
+                页面说明
+              </button>
             </div>
           </header>
+          <DetailsDialog
+            open={isViewHelpOpen}
+            title={activeViewMeta.label}
+            eyebrow={activeModule.label}
+            onClose={() => setIsViewHelpOpen(false)}
+          >
+            <p className="type-body text-slate-600">{activeViewMeta.description}</p>
+            <ol className="mt-4 grid gap-2">
+              {activeViewMeta.steps.map((step, index) => (
+                <li key={step} className="grid grid-cols-[28px_minmax(0,1fr)] items-start gap-3 rounded-[10px] bg-slate-50 p-3 text-sm text-slate-700">
+                  <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-white font-semibold text-ink ring-1 ring-slate-200">{index + 1}</span>
+                  <span className="pt-0.5 leading-6">{step}</span>
+                </li>
+              ))}
+            </ol>
+          </DetailsDialog>
 
           {activeView === "upload" && (
             <UploadView
@@ -485,6 +596,9 @@ export default function Home() {
               <CostDashboard
                 comparison={comparison}
                 selectedCategory={filters.category}
+                onSelectCategory={selectChartCategory}
+                onSelectMaterial={selectChartMaterial}
+                onSelectSupplier={selectChartSupplier}
                 onInspectRows={(selectedRows, title) => {
                   setDetailSelection({ rows: selectedRows, title });
                   setActiveView("details");
@@ -500,6 +614,16 @@ export default function Home() {
               onCreateCategory={createManualCategory}
               onDeleteCategory={deleteManualCategory}
               onUpdateRows={updateRows}
+            />
+          )}
+
+          {activeView === "single" && (
+            <SingleBomAnalysis
+              rows={quoteRows}
+              onInspectRows={(selectedRows, title) => {
+                setDetailSelection({ rows: selectedRows, title });
+                setActiveView("details");
+              }}
             />
           )}
 
@@ -531,8 +655,8 @@ export default function Home() {
               <section className="app-surface reveal-in min-w-0 max-w-full overflow-hidden rounded-[22px] p-4">
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前对比明细"}</h3>
-                    <p className="text-xs text-slate-500">可排序、筛选、修改或删除异常行；原始字段保留用于追溯。</p>
+                    <h3 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前明细"}</h3>
+                    <p className="text-xs text-slate-500">可以排序、筛选和修改；需要时还能查看原始内容。</p>
                   </div>
                   {detailSelection && (
                     <button
@@ -580,18 +704,18 @@ export default function Home() {
               <div className="app-surface rounded-[20px] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-ink">导出成本核验表</h3>
-                    <p className="text-xs text-slate-500">导出前先选择沟通对象；系统会优先使用该对象的物料名和规格。</p>
+                    <h3 className="text-sm font-semibold text-ink">导出结果</h3>
+                    <p className="text-xs text-slate-500">选择准备沟通的供应商，表格会优先使用对方熟悉的物料名称。</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="field-shell flex items-center gap-2 rounded-[14px] px-3 py-2 text-xs font-semibold text-slate-600">
-                      沟通对象
+                      名称以谁为准
                       <select
                         value={outputNameSupplier}
                         onChange={(event) => setOutputNameSupplier(event.target.value)}
                         className="bg-transparent text-sm font-semibold text-ink outline-none"
                       >
-                        <option value="">自动</option>
+                        <option value="">自动选择</option>
                         {comparison.activeSuppliers.map((supplier) => (
                           <option key={supplier} value={supplier}>
                             {supplier}
@@ -604,21 +728,7 @@ export default function Home() {
                       onClick={exportTemplateExcel}
                       className="button-primary motion-lift rounded-[14px] px-5 py-2 text-sm font-semibold active:scale-[0.98]"
                     >
-                      按模板导出 Excel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={exportComparisonCsv}
-                      className="button-secondary motion-lift rounded-[14px] px-5 py-2 text-sm font-semibold active:scale-[0.98]"
-                    >
-                      导出整合成本表
-                    </button>
-                    <button
-                      type="button"
-                      onClick={exportRawCsv}
-                      className="button-secondary motion-lift rounded-[14px] px-5 py-2 text-sm font-semibold active:scale-[0.98]"
-                    >
-                      导出明细数据
+                      导出核价表
                     </button>
                   </div>
                 </div>
@@ -799,20 +909,17 @@ function UploadView({
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const kindHelp =
     kind === "supplier_quote"
-      ? "进入当前项目对比；同一供应商的不同型号会按报价对象分开核验。"
-      : "沉淀为参考价格来源；不会参与当前供应商排名。";
+      ? "用于本次成本分析；同一供应商的不同产品或型号会分开显示。"
+      : "作为以后比价的参考，不会加入本次报价比较。";
 
   return (
-    <section className="reveal-in grid w-full gap-4 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_390px]">
+    <section className="reveal-in grid w-full gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
       <section className="quiet-surface rounded-[20px] p-4 xl:col-span-2">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="type-micro inline-flex rounded-[10px] bg-slate-950 px-3 py-1 text-white">
-              开始前
-            </div>
-            <h3 className="type-section-title mt-2 text-ink">先准备输入模板，再上传报价文件</h3>
+            <h3 className="type-section-title text-ink">从一份 BOM 开始</h3>
             <p className="type-body mt-1 text-slate-500">
-              供应商只需填写“输入”工作表；平台会按模板输出核价表、差异和沟通依据。
+              直接上传已有文件，或先下载模板发给供应商填写。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -821,59 +928,50 @@ function UploadView({
               onClick={() => setIsGuideOpen(true)}
               className="button-primary motion-lift rounded-[14px] px-5 py-3 text-sm font-semibold active:scale-[0.98]"
             >
-              查看操作说明
+              使用说明
             </button>
             <a
               href="/templates/bom-input-output-template.xlsx"
               download="BOM输入模板2.0.xlsx"
               className="button-secondary motion-lift rounded-[14px] px-5 py-3 text-sm font-semibold active:scale-[0.98]"
             >
-              下载 BOM 输入模板
+              下载输入模板
             </a>
           </div>
         </div>
         {isGuideOpen && <UserGuideModal onClose={() => setIsGuideOpen(false)} />}
       </section>
       <form onSubmit={onSubmit} className="app-surface rounded-[20px] p-4">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <label className="block">
-            <span className="type-caption font-semibold text-slate-500">上传批次 / 归档名（可选）</span>
-            <input
-              value={productName}
-              onChange={(event) => onProductNameChange(event.target.value)}
-              className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-              placeholder="例如：7月供应商报价汇总；可留空"
-            />
-            <p className="type-caption mt-2 text-slate-500">用于记录本次任务。报价对象会优先从模板标题自动识别。</p>
-          </label>
-
-          <label className="block">
-            <span className="type-caption font-semibold text-slate-500">供应商</span>
-            <input
-              value={supplierName}
-              onChange={(event) => onSupplierNameChange(event.target.value)}
-              className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-              placeholder="留空从文件名识别"
-            />
-          </label>
-
-          <label className="block">
-            <span className="type-caption font-semibold text-slate-500">文件类型</span>
-            <select
-              value={kind}
-              onChange={(event) => onKindChange(event.target.value as BomFileKind)}
-              className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="type-panel-title text-ink">导入到哪里</h3>
+            <p className="type-caption mt-1 text-slate-500">{kindHelp}</p>
+          </div>
+          <div className="inline-flex rounded-[10px] bg-slate-100 p-1" role="group" aria-label="文件用途">
+            <button
+              type="button"
+              onClick={() => onKindChange("supplier_quote")}
+              className={`cursor-pointer rounded-[8px] px-4 py-2 text-sm font-semibold transition-colors ${
+                kind === "supplier_quote" ? "bg-white text-ink shadow-sm" : "text-slate-500 hover:text-ink"
+              }`}
             >
-              <option value="supplier_quote">供应商报价</option>
-              <option value="historical_bom">历史 BOM</option>
-            </select>
-            <p className="type-caption mt-2 text-slate-500">{kindHelp}</p>
-          </label>
+              本次报价
+            </button>
+            <button
+              type="button"
+              onClick={() => onKindChange("historical_bom")}
+              className={`cursor-pointer rounded-[8px] px-4 py-2 text-sm font-semibold transition-colors ${
+                kind === "historical_bom" ? "bg-white text-ink shadow-sm" : "text-slate-500 hover:text-ink"
+              }`}
+            >
+              历史参考
+            </button>
+          </div>
         </div>
 
-        <label className="mt-4 block rounded-[18px] border border-dashed border-slate-300 bg-slate-50/72 p-6 transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-slate-500 hover:bg-white/84">
-          <span className="type-panel-title text-ink">Excel / CSV 文件</span>
-            <span className="type-caption ml-2 text-slate-500">支持多文件、多工作表、同供应商多型号</span>
+        <label className="mt-4 block rounded-[12px] border border-dashed border-slate-300 bg-slate-50 p-6 transition-colors duration-200 hover:border-slate-500 hover:bg-white">
+          <span className="type-panel-title text-ink">选择 BOM 文件</span>
+            <span className="type-caption ml-2 text-slate-500">可以一次选择多个 Excel 或 CSV</span>
           <input
             type="file"
             multiple
@@ -907,17 +1005,43 @@ function UploadView({
                 </span>
               ))
             ) : (
-              <span>选择 Excel / CSV 后点击上传解析；重复选择同一文件不会叠加。</span>
+              <span>文件会在这里列出，确认后再开始导入。</span>
             )}
           </div>
         </label>
 
-        <div className="mt-5 flex flex-wrap gap-2">
+        <details className="mt-4 rounded-[10px] border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-600 hover:text-ink">
+            填写供应商或文件备注（可选）
+          </summary>
+          <div className="grid gap-4 border-t border-slate-100 p-4 md:grid-cols-2">
+            <label className="block">
+              <span className="type-caption font-semibold text-slate-600">供应商</span>
+              <input
+                value={supplierName}
+                onChange={(event) => onSupplierNameChange(event.target.value)}
+                className="field-shell mt-2 h-11 w-full px-4 text-[13px] outline-none"
+                placeholder="留空会自动识别"
+              />
+            </label>
+            <label className="block">
+              <span className="type-caption font-semibold text-slate-600">备注</span>
+              <input
+                value={productName}
+                onChange={(event) => onProductNameChange(event.target.value)}
+                className="field-shell mt-2 h-11 w-full px-4 text-[13px] outline-none"
+                placeholder="例如：7 月报价；可以留空"
+              />
+            </label>
+          </div>
+        </details>
+
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             disabled={isUploading}
             className="button-primary motion-lift rounded-[14px] px-6 py-3 text-sm font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isUploading ? "解析中..." : "上传解析"}
+            {isUploading ? "正在读取..." : "开始导入"}
           </button>
         </div>
 
@@ -938,7 +1062,7 @@ function UploadView({
       <div className="app-surface rounded-[20px] p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="type-panel-title text-ink">解析记录</h3>
+            <h3 className="type-panel-title text-ink">已导入的文件</h3>
             <span className="type-caption text-slate-500">{records.length} 个文件</span>
           </div>
           <button
@@ -947,107 +1071,134 @@ function UploadView({
             disabled={records.length === 0 && files.length === 0}
             className="button-secondary motion-lift rounded-[12px] px-4 py-2 text-xs font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            清空记录
+            全部清空
           </button>
         </div>
-        <div className="mt-4 grid max-h-[520px] gap-2 overflow-y-auto pr-1">
-          {records.map((record) => (
-            <div key={record.id} className="relative rounded-[16px] bg-slate-50/82 p-3 pr-10 ring-1 ring-slate-200/80">
-              <button
-                type="button"
-                aria-label={`删除 ${record.fileName}`}
-                onClick={() => onDeleteRecord(record.id)}
-                className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-[14px] text-slate-400 transition hover:bg-white hover:text-slate-800 hover:ring-1 hover:ring-slate-200"
+        <div className="mt-4 grid max-h-[520px] grid-cols-1 items-start gap-2 overflow-y-auto px-1 pb-1 sm:grid-cols-2">
+          {records.map((record) => {
+            const identities = buildImportedFileIdentities(record);
+            return (
+              <div
+                key={record.id}
+                className="relative min-w-0 overflow-hidden rounded-[12px] border border-slate-200 bg-slate-50/82 p-3 pr-9"
               >
-                ×
-              </button>
-              <div className="flex items-center justify-between gap-3">
-                <span className="truncate text-sm font-semibold text-ink">{record.productName || "未命名产品"}</span>
-                <span className="text-xs text-slate-500">{record.rowCount} 行</span>
+                <button
+                  type="button"
+                  aria-label={`删除 ${record.fileName}`}
+                  onClick={() => onDeleteRecord(record.id)}
+                  className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-[10px] text-slate-400 transition hover:bg-white hover:text-slate-800 hover:ring-1 hover:ring-slate-200"
+                >
+                  ×
+                </button>
+                <p className="truncate text-sm font-semibold text-ink" title={record.fileName}>
+                  {record.fileName}
+                </p>
+                <div className="mt-2 grid gap-1.5">
+                  {identities.map((identity) => (
+                    <div
+                      key={identity.key}
+                      className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-slate-600"
+                      title={identity.fullLabel}
+                    >
+                      <span className="min-w-0 truncate font-semibold text-slate-800">{identity.supplierName}</span>
+                      {identity.productName && (
+                        <>
+                          <span className="shrink-0 text-slate-300">·</span>
+                          <span className="min-w-0 truncate">{identity.productName}</span>
+                        </>
+                      )}
+                      {identity.modelAndColor && (
+                        <>
+                          <span className="shrink-0 text-slate-300">·</span>
+                          <span className="min-w-0 truncate text-slate-500">{identity.modelAndColor}</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className="mt-1 truncate text-xs text-slate-500">
-                {record.supplierName} · {record.fileName}
-              </p>
-              <p className="mt-1 text-[11px] text-slate-400">
-                {new Date(record.uploadedAt).toLocaleString("zh-CN", { hour12: false })}
-              </p>
-              {record.parseWarnings.length > 0 && (
-                <details className="mt-2 rounded-[14px] bg-white px-3 py-2 text-[11px] text-slate-500 ring-1 ring-slate-200">
-                  <summary className="cursor-pointer font-semibold text-slate-600">
-                    解析诊断 {record.parseWarnings.length} 条
-                  </summary>
-                  <div className="mt-2 grid gap-1 leading-5">
-                    {record.parseWarnings.slice(0, 8).map((warning, index) => (
-                      <p key={`${record.id}-warning-${index}`}>{warning}</p>
-                    ))}
-                    {record.parseWarnings.length > 8 && <p>还有 {record.parseWarnings.length - 8} 条诊断未显示。</p>}
-                  </div>
-                </details>
-              )}
-            </div>
-          ))}
-          {records.length === 0 && <div className="rounded-[18px] bg-slate-50 p-8 text-center text-sm text-slate-500">上传后会在这里显示文件、报价对象和解析诊断。</div>}
+            );
+          })}
+          {records.length === 0 && (
+            <div className="empty-state rounded-[12px] p-8 text-center text-sm text-slate-500 sm:col-span-2">还没有导入文件</div>
+          )}
         </div>
       </div>
     </section>
   );
 }
 
+function buildImportedFileIdentities(record: BomFileRecord) {
+  const identities = new Map<
+    string,
+    {
+      key: string;
+      supplierName: string;
+      productName: string;
+      modelAndColor: string;
+      fullLabel: string;
+    }
+  >();
+
+  record.rows.forEach((row) => {
+    const supplierName = cleanImportedIdentity(row.supplierName) || cleanImportedIdentity(record.supplierName) || "未识别供应商";
+    const productName = cleanImportedIdentity(row.productName);
+    const modelAndColor = [cleanImportedIdentity(row.productModel), cleanImportedIdentity(row.productColor)].filter(Boolean).join(" ");
+    const key = [supplierName, productName, modelAndColor].join("::");
+    if (identities.has(key)) return;
+    identities.set(key, {
+      key,
+      supplierName,
+      productName,
+      modelAndColor,
+      fullLabel: [supplierName, productName, modelAndColor].filter(Boolean).join(" / ")
+    });
+  });
+
+  if (identities.size === 0) {
+    const supplierName = cleanImportedIdentity(record.supplierName) || "未识别供应商";
+    const productName = cleanImportedIdentity(record.productName);
+    const key = [supplierName, productName].join("::");
+    identities.set(key, {
+      key,
+      supplierName,
+      productName,
+      modelAndColor: "",
+      fullLabel: [supplierName, productName].filter(Boolean).join(" / ")
+    });
+  }
+
+  return Array.from(identities.values());
+}
+
+function cleanImportedIdentity(value: string | undefined) {
+  const text = String(value ?? "").trim();
+  return /^(未命名产品|未命名供应商|未指定产品)$/.test(text) ? "" : text;
+}
+
 function UserGuideModal({ onClose }: { onClose: () => void }) {
   const steps = [
     {
-      title: "1. 上传 BOM",
-      body: "上传报价或历史 BOM。模板标题建议使用“供应商-产品名-型号-颜色”，系统会拆成独立对比对象。"
+      title: "1. 准备报价",
+      body: "上传报价文件，再到“整理物料”检查品类和不同叫法。"
     },
     {
-      title: "2. 手工校准",
-      body: "按报价对象检查物料，把同一零件的不同叫法归到同一标准品类。"
+      title: "2. 查看成本",
+      body: "看一份报价的成本组成，或把多份报价放在一起比较。"
     },
     {
-      title: "3. 报价对比",
-      body: "查看总价、品类金额、成本结构和物料金额差异；点击图表可追溯来源。"
+      title: "3. 检查明细",
+      body: "确认数量、单价、金额和参考价；有问题的行可以直接修改。"
     },
     {
-      title: "4. 数据明细",
-      body: "核对原始 BOM 行、异常项和材料参考价偏离；异常行可直接筛选后修改或删除。"
-    },
-    {
-      title: "5. 结果报告",
-      body: "查看总报价结论、品类沟通重点和物料沟通重点；可按当前筛选范围生成简短评审摘要。"
-    },
-    {
-      title: "6. 数据输出",
-      body: "选择沟通对象后导出模板化 Excel，物料名和规格尽量保留供应商原始写法。"
+      title: "4. 得到结果",
+      body: "先看分析结论，再导出可直接与供应商核对的 Excel。"
     }
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
-      <button type="button" aria-hidden="true" tabIndex={-1} className="absolute inset-0 cursor-default" onClick={onClose} />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="使用手册"
-        className="app-surface relative max-h-[86vh] w-full max-w-5xl overflow-y-auto rounded-[24px] p-5 shadow-2xl"
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex rounded-[12px] bg-slate-950 px-3 py-1 text-[11px] font-semibold text-white">
-              使用手册
-            </div>
-            <h3 className="mt-2 text-xl font-semibold text-ink">BOM 成本核验操作说明</h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-lg font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
-            aria-label="关闭使用手册"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+    <DetailsDialog open title="怎么使用" eyebrow="使用手册" size="wide" onClose={onClose}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {steps.map((step) => (
             <div key={step.title} className="rounded-[18px] bg-slate-50 p-3 ring-1 ring-slate-200">
               <h4 className="text-xs font-semibold text-ink">{step.title}</h4>
@@ -1058,11 +1209,10 @@ function UserGuideModal({ onClose }: { onClose: () => void }) {
 
         <div className="mt-4 rounded-[18px] bg-white p-4 text-xs leading-5 text-slate-500 ring-1 ring-slate-200">
           <p>
-            对比列以“供应商 + 产品名 + 型号 + 颜色”为准。同一供应商上传两代产品时，会自动拆成两个报价对象；物料匹配则使用标准化物料名和手工校准结果，不把上传批次名作为硬条件。
+            系统会按“供应商、产品、型号和颜色”区分每份报价。同一供应商的不同产品也能单独比较；文件备注只用于查找，不会影响物料匹配。
           </p>
         </div>
-      </section>
-    </div>
+    </DetailsDialog>
   );
 }
 
@@ -1088,12 +1238,12 @@ function FilterPanel({
       <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(220px,1.2fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(220px,2fr)_auto]">
         <div className="block min-w-0">
           <div className="flex items-center justify-between gap-3">
-            <span className="type-caption font-semibold text-slate-500">对比对象筛选</span>
+            <span className="type-caption font-semibold text-slate-600">选择报价</span>
             <button type="button" onClick={onSelectAllSuppliers} className="type-caption font-semibold text-ink hover:text-slate-500">
               全部
             </button>
           </div>
-          <div className="mt-2 flex min-h-11 max-w-full flex-wrap items-center gap-2 overflow-auto rounded-[16px] bg-slate-50/74 p-1.5 ring-1 ring-slate-200/80">
+          <div className="mt-2 flex min-h-11 max-w-full flex-wrap items-center gap-2 overflow-auto rounded-[10px] bg-slate-50 p-1.5 ring-1 ring-slate-200">
             {comparison.suppliers.map((supplier) => {
               const checked = filters.supplierNames.length === 0 || filters.supplierNames.includes(supplier);
               return (
@@ -1104,7 +1254,7 @@ function FilterPanel({
                     onChange={(event) => onSupplierChecked(supplier, event.target.checked)}
                     className="peer sr-only"
                   />
-                  <span className="motion-lift inline-flex items-center gap-2 rounded-[12px] bg-white/84 px-3 py-2 font-semibold ring-1 ring-slate-200 peer-checked:bg-slate-950 peer-checked:text-white peer-checked:ring-slate-950">
+                  <span className="motion-lift inline-flex items-center gap-2 rounded-[8px] bg-white px-3 py-2 font-semibold ring-1 ring-slate-200 peer-checked:bg-slate-950 peer-checked:text-white peer-checked:ring-slate-950">
                     <span className={`h-1.5 w-1.5 rounded-full ${checked ? "bg-white" : "bg-slate-300"}`} />
                     {supplier}
                   </span>
@@ -1153,7 +1303,7 @@ function FilterPanel({
             value={filters.materialQuery}
             onChange={(event) => onUpdateFilter("materialQuery", event.target.value)}
             className="field-shell mt-2 h-11 w-full rounded-[14px] px-4 text-[13px] outline-none transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-            placeholder="物料名称、标准名或规格"
+            placeholder="输入物料名称或规格"
           />
         </label>
 
@@ -1162,7 +1312,7 @@ function FilterPanel({
           onClick={onReset}
           className="button-secondary motion-lift mt-6 h-11 rounded-[14px] px-5 text-sm font-semibold active:scale-[0.98]"
         >
-          重置
+          清除筛选
         </button>
       </div>
     </section>
@@ -1185,7 +1335,7 @@ function MiniStat({
     <Element
       type={onClick ? "button" : undefined}
       onClick={onClick}
-      className={`rounded-[14px] bg-white/68 p-3 text-left ring-1 ring-slate-200/80 ${
+      className={`rounded-[10px] bg-slate-50 p-3 text-left ring-1 ring-slate-200 ${
         onClick ? "motion-lift cursor-pointer transition hover:bg-white active:scale-[0.98]" : ""
       }`}
     >
@@ -1193,187 +1343,6 @@ function MiniStat({
       <p className={`mt-1 text-[1.35rem] font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
     </Element>
   );
-}
-
-function MetricCell({
-  label,
-  value,
-  tone = "normal",
-  compact = false,
-  onClick
-}: {
-  label: string;
-  value: string;
-  tone?: "normal" | "danger";
-  compact?: boolean;
-  onClick?: () => void;
-}) {
-  const Element = onClick ? "button" : "div";
-  return (
-    <Element
-      type={onClick ? "button" : undefined}
-      onClick={onClick}
-      className={`metric-strip rounded-[14px] text-center ${
-        compact ? "px-3 py-2" : "px-3.5 py-2.5"
-      } ${onClick ? "motion-lift cursor-pointer transition hover:bg-white active:scale-[0.98]" : ""}`}
-    >
-      <p className={`${compact ? "text-[1.05rem]" : "text-[1.22rem]"} font-bold leading-none ${tone === "danger" ? "text-danger" : "text-ink"}`}>{value}</p>
-      <p className="mt-0.5 font-semibold">{label}</p>
-    </Element>
-  );
-}
-
-function toRawCsv(rows: CanonicalBomRow[], marketPriceByRowId: Record<string, MaterialPriceQuoteResponse["comparisons"][number]>): string {
-  const headers = [
-    "产品",
-    "供应商",
-    "文件",
-    "原行号",
-    "物料名称",
-    "匹配名",
-    "规格型号",
-    "原品类",
-    "单位",
-    "数量",
-    "单价",
-    "金额",
-    "材料参考价",
-    "行情差异率",
-    "行情风险",
-    "备注",
-    "异常",
-    "原始字段"
-  ];
-  const body = rows.map((row) =>
-    {
-      const marketPrice = marketPriceByRowId[row.id];
-      return [
-      row.productName,
-      row.supplierName,
-      row.sourceFileName,
-      row.rowNumber,
-      row.materialName,
-      row.normalizedName,
-      row.spec,
-      row.category,
-      row.unit,
-      row.quantity,
-      row.unitPrice,
-      row.amount,
-      marketPrice?.referenceUnitPrice ?? "",
-      marketPrice?.differenceRate === undefined ? "" : `${(marketPrice.differenceRate * 100).toFixed(1)}%`,
-      marketPrice ? getMarketRiskLabel(marketPrice.riskLevel, marketPrice.status) : "",
-      row.remark,
-      row.dataIssues.map((issue) => issue.message).join("; "),
-      JSON.stringify(row.originalFields)
-      ].map(escapeCsv);
-    }
-  );
-
-  return `\uFEFF${[headers.map(escapeCsv), ...body].map((line) => line.join(",")).join("\n")}`;
-}
-
-function getMarketRiskLabel(
-  riskLevel: MaterialPriceQuoteResponse["comparisons"][number]["riskLevel"],
-  status: MaterialPriceQuoteResponse["comparisons"][number]["status"]
-): string {
-  if (status === "not_found") return "无参考";
-  if (status === "unit_mismatch") return "单位核验";
-  if (riskLevel === "high") return "高风险";
-  if (riskLevel === "medium") return "需核验";
-  if (riskLevel === "low") return "轻微偏离";
-  return "接近行情";
-}
-
-function toComparisonCsv(comparison: ReturnType<typeof buildCostComparison>, outputNameSupplier: string): string {
-  const supplierHeaders = comparison.activeSuppliers.flatMap((supplier) => [`${supplier}报价`, `${supplier}规格描述`]);
-  const headers = ["分类", "名称", ...supplierHeaders, "差值", "百分比", "产品", "覆盖对象"];
-  const body: string[][] = [];
-
-  comparison.categories.forEach((category) => {
-    const categoryItems = comparison.materialComparisons.filter((item) => item.category === category);
-    if (categoryItems.length === 0) return;
-
-    const categoryValues = comparison.activeSuppliers.map((supplier) =>
-      categoryItems.reduce((sum, item) => sum + getSupplierAmount(item, supplier), 0)
-    );
-    const categoryDiff = getPairDiff(categoryValues);
-    body.push([
-      category,
-      "分类合计",
-      ...comparison.activeSuppliers.flatMap((_, index) => [categoryValues[index], ""]),
-      categoryDiff.diff,
-      Number.isFinite(categoryDiff.rate) ? `${(categoryDiff.rate * 100).toFixed(1)}%` : "",
-      "",
-      `${categoryItems.reduce((sum, item) => sum + item.suppliers.length, 0)}/${categoryItems.length * comparison.activeSuppliers.length}`
-    ].map(escapeCsv));
-
-    categoryItems.forEach((item) => {
-      const values = comparison.activeSuppliers.map((supplier) => getSupplierAmount(item, supplier));
-      const diff = getPairDiff(values);
-      body.push([
-        category,
-        getOutputMaterialName(item, comparison.activeSuppliers, outputNameSupplier),
-        ...comparison.activeSuppliers.flatMap((supplier, index) => [
-          values[index] > 0 ? values[index] : "",
-          item.supplierSpecs[supplier]?.trim() ?? ""
-        ]),
-        diff.diff,
-        Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
-        item.productName,
-        `${item.suppliers.length}/${comparison.activeSuppliers.length}`
-      ].map(escapeCsv));
-    });
-  });
-
-  body.push(
-    summaryCsvRow("材料成本合计", comparison.totals.materialTotals, comparison.activeSuppliers),
-    summaryCsvRow("人工/管理/利润合计", comparison.totals.derivedOverheadTotals, comparison.activeSuppliers),
-    summaryCsvRow("出厂价", comparison.totals.factoryPriceTotals, comparison.activeSuppliers)
-  );
-
-  return `\uFEFF${[headers.map(escapeCsv), ...body].map((line) => line.join(",")).join("\n")}`;
-}
-function getSupplierAmount(item: ReturnType<typeof buildCostComparison>["materialComparisons"][number], supplier: string): number {
-  return item.suppliers.find((entry) => entry.supplierName === supplier)?.amount ?? 0;
-}
-
-function getOutputMaterialName(
-  item: ReturnType<typeof buildCostComparison>["materialComparisons"][number],
-  suppliers: string[],
-  outputNameSupplier: string
-): string {
-  const orderedSuppliers = outputNameSupplier
-    ? [outputNameSupplier, ...suppliers.filter((supplier) => supplier !== outputNameSupplier)]
-    : suppliers;
-  const name = orderedSuppliers.map((supplier) => item.supplierMaterialNames[supplier]?.trim()).find(Boolean);
-  if (name) return name;
-  return item.rows.map((row) => row.materialName.trim()).filter(Boolean).join(" / ") || item.materialName;
-}
-
-function getPairDiff(values: number[]): { diff: number | ""; rate: number } {
-  if (values.length < 2 || values[0] <= 0) return { diff: "", rate: Number.NaN };
-  const diff = values[1] - values[0];
-  return { diff, rate: diff / values[0] };
-}
-
-function summaryCsvRow(label: string, totals: Record<string, number>, suppliers: string[]): string[] {
-  const values = suppliers.map((supplier) => totals[supplier] ?? 0);
-  const diff = getPairDiff(values);
-  return [
-    "总计核验",
-    label,
-    ...values.flatMap((value) => [value > 0 ? value : "", ""]),
-    diff.diff,
-    Number.isFinite(diff.rate) ? `${(diff.rate * 100).toFixed(1)}%` : "",
-    "",
-    ""
-  ].map(escapeCsv);
-}
-
-function downloadCsv(csv: string, fileName: string) {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  downloadBlob(blob, fileName);
 }
 
 function downloadBinary(data: ArrayBuffer, type: string, fileName: string) {
@@ -1391,12 +1360,4 @@ function downloadBlob(blob: Blob, fileName: string) {
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function escapeCsv(value: unknown): string {
-  const text = String(value ?? "");
-  if (/[",\n\r]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
 }

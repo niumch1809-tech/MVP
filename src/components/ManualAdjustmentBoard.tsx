@@ -37,6 +37,16 @@ export function ManualAdjustmentBoard({
   const [newCategory, setNewCategory] = useState("");
 
   const suppliers = useMemo(() => unique(rows.map(getComparisonObjectLabel).filter(Boolean)), [rows]);
+  const supplierCounts = useMemo(
+    () =>
+      new Map(
+        suppliers.map((item) => [
+          item,
+          rows.filter((row) => getComparisonObjectLabel(row) === item).length
+        ])
+      ),
+    [rows, suppliers]
+  );
   const allCategories = useMemo(
     () => unique([...STANDARD_CATEGORIES, ...categories, ...rows.map(getRowCategory)].filter(Boolean)),
     [categories, rows]
@@ -74,6 +84,13 @@ export function ManualAdjustmentBoard({
 
   function toggleSelected(rowId: string) {
     setSelectedIds((current) => current.includes(rowId) ? current.filter((id) => id !== rowId) : [...current, rowId]);
+  }
+
+  function selectSupplier(nextSupplier: string) {
+    setSupplier(nextSupplier);
+    setCategoryFilter("");
+    setQuery("");
+    setSelectedIds([]);
   }
 
   function createCategory() {
@@ -142,9 +159,9 @@ export function ManualAdjustmentBoard({
     <section className="reveal-in app-surface rounded-[20px] p-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(430px,0.42fr)] xl:items-end">
         <div className="min-w-0">
-          <h3 className="type-panel-title text-ink">手工校准台</h3>
+          <h3 className="type-panel-title text-ink">整理物料</h3>
           <p className="type-caption mt-1 max-w-3xl text-slate-500">
-            左侧按报价对象检查物料，右侧维护标准品类。拖动物料或使用下拉框即可修正归类。
+            按供应商逐份检查。选中物料后可以改品类，也可以直接拖到右侧品类中。
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_170px_140px]">
@@ -152,7 +169,7 @@ export function ManualAdjustmentBoard({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="field-shell h-10 rounded-[12px] px-3 text-[13px] outline-none"
-            placeholder="搜索物料 / 规格 / 报价对象"
+            placeholder="搜索物料或规格"
           />
           <select
             value={categoryFilter}
@@ -168,7 +185,7 @@ export function ManualAdjustmentBoard({
             disabled={selectedIds.length === 0}
             className="button-secondary motion-lift h-10 rounded-[14px] px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
           >
-            清除所选规则
+            恢复所选
           </button>
         </div>
       </div>
@@ -179,9 +196,10 @@ export function ManualAdjustmentBoard({
           selectedIds={selectedIds}
           selectedRows={selectedRows}
           suppliers={suppliers}
+          supplierCounts={supplierCounts}
           activeSupplier={supplier}
           categories={allCategories}
-          onSupplierChange={setSupplier}
+          onSupplierChange={selectSupplier}
           onToggleSelected={toggleSelected}
           onUpdateSingleRow={updateSingleRow}
         />
@@ -210,6 +228,7 @@ function CalibrationSheet({
   selectedIds,
   selectedRows,
   suppliers,
+  supplierCounts,
   activeSupplier,
   categories,
   onSupplierChange,
@@ -220,6 +239,7 @@ function CalibrationSheet({
   selectedIds: string[];
   selectedRows: CanonicalBomRow[];
   suppliers: string[];
+  supplierCounts: Map<string, number>;
   activeSupplier: string;
   categories: string[];
   onSupplierChange: (supplier: string) => void;
@@ -230,7 +250,7 @@ function CalibrationSheet({
     <section className="min-w-0 rounded-[18px] border border-slate-200/80 bg-white/68 p-3 shadow-[0_14px_42px_rgba(15,23,42,0.05)]">
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <PanelHeader title="物料校准表" meta={`显示 ${rows.length} 行 / 已选 ${selectedIds.length} 行`} />
+          <PanelHeader title="供应商物料" meta={`${rows.length} 项 / 已选 ${selectedIds.length} 项`} />
           {selectedRows.length > 0 && (
             <div className="rounded-[12px] bg-slate-950 px-3 py-2 text-xs text-white">
               已选：{selectedRows.map((row) => `${row.supplierName}-${row.materialName}`).slice(0, 3).join(" / ")}
@@ -244,7 +264,7 @@ function CalibrationSheet({
               key={item}
               active={activeSupplier === item}
               label={item}
-              count={rows.filter((row) => getComparisonObjectLabel(row) === item).length}
+              count={supplierCounts.get(item) ?? 0}
               onClick={() => onSupplierChange(item)}
             />
           ))}
@@ -257,8 +277,8 @@ function CalibrationSheet({
             <tr>
               <th className="sticky left-0 z-30 w-12 bg-slate-50 px-2 py-2 font-semibold">选</th>
               <th className="w-44 px-2 py-2 font-semibold">品类</th>
-              <th className="min-w-72 px-2 py-2 font-semibold">对应物料</th>
-              <th className="w-28 px-2 py-2 text-right font-semibold">个数</th>
+              <th className="min-w-72 px-2 py-2 font-semibold">物料</th>
+              <th className="w-28 px-2 py-2 text-right font-semibold">数量</th>
               <th className="w-28 px-2 py-2 text-right font-semibold">单价</th>
               <th className="w-28 px-2 py-2 text-right font-semibold">成本</th>
               <th className="min-w-44 px-2 py-2 font-semibold">来源/规格</th>
@@ -311,7 +331,7 @@ function CalibrationSheet({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-3 py-10 text-center text-sm text-slate-500">
-                  当前筛选下没有可校准物料。请上传 BOM，或切换报价对象、品类和搜索条件。
+                  当前没有可整理的物料。请先上传 BOM，或换一个供应商和品类。
                 </td>
               </tr>
             )}
