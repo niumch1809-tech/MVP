@@ -72,7 +72,7 @@ export const MATERIAL_KNOWLEDGE_RULES: MaterialKnowledgeRule[] = [
   { canonicalName: "垫片", category: "五金", aliases: ["垫片", "平垫", "弹垫", "washer"], ignoreSpec: false },
 
   { canonicalName: "纸箱/外箱", category: "包装", aliases: ["纸箱", "外箱", "箱子", "carton", "master carton"], ignoreSpec: false },
-  { canonicalName: "彩盒/包装盒", category: "包装", aliases: ["彩盒", "包装盒", "内盒", "color box", "box"], ignoreSpec: false },
+  { canonicalName: "彩箱/彩盒", category: "包装", aliases: ["彩箱", "彩盒", "包装盒", "内盒", "color box", "box"], ignoreSpec: false },
   { canonicalName: "包装袋", category: "包装", aliases: ["包装袋", "塑胶袋", "胶袋", "po袋", "p.o袋", "pe袋", "p.e袋", "bag"], ignoreSpec: true },
   { canonicalName: "无纺布袋", category: "包装", aliases: ["无纺布袋", "布袋", "nonwoven bag"], ignoreSpec: false },
   { canonicalName: "泡棉/泡沫", category: "包装", aliases: ["泡棉", "泡沫", "珍珠棉", "epe", "eps", "foam"], ignoreSpec: false },

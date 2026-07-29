@@ -158,6 +158,12 @@ function hasSupplierAmount(item: MaterialComparisonItem, supplier: string): bool
 }
 
 function getOutputMaterialName(item: MaterialComparisonItem, suppliers: string[], outputNameSupplier: string): string {
+  if (
+    item.materialName.trim() &&
+    item.rows.some((row) => row.manualMatchKey?.trim() || row.manualName?.trim())
+  ) {
+    return item.materialName.trim();
+  }
   const orderedSuppliers = outputNameSupplier
     ? [outputNameSupplier, ...suppliers.filter((supplier) => supplier !== outputNameSupplier)]
     : suppliers;

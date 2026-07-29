@@ -1,5 +1,6 @@
 import { CanonicalBomRow } from "@/types/bom";
 import { isRollupCostRow, isSummaryCostItem, normalizeBomCategory } from "./normalize";
+import { findMaterialKnowledgeMatch } from "./material-knowledge";
 
 export const STANDARD_CATEGORIES = [
   "结构件",
@@ -272,16 +273,76 @@ function groupRowsBy(rows: CanonicalBomRow[], getKey: (row: CanonicalBomRow) => 
 }
 
 function buildDisplayMaterialName(rows: CanonicalBomRow[]): string {
+  const inferredName = inferAlignedMaterialName(rows);
+  if (inferredName) return inferredName;
   const first = rows[0];
-  if (first.manualName?.trim()) {
-    return first.manualName.trim();
-  }
   const normalized = first.normalizedName || first.materialName.trim();
   const originals = Array.from(new Set(rows.map((row) => row.materialName.trim()).filter(Boolean)));
   if (originals.length > 1) {
     return `${normalized}（${originals.slice(0, 3).join(" / ")}${originals.length > 3 ? "..." : ""}）`;
   }
   return normalized || originals[0] || "未命名物料";
+}
+
+export function inferAlignedMaterialName(rows: CanonicalBomRow[]): string {
+  if (rows.length === 0) return "";
+
+  const manualNames = Array.from(
+    new Set(rows.map((row) => row.manualName?.trim()).filter((name): name is string => Boolean(name)))
+  );
+  if (manualNames.length === 1) return manualNames[0];
+
+  const knowledgeNames = rows.map((row) =>
+    findMaterialKnowledgeMatch(
+      `${row.materialName} ${stripSpecFingerprint(row.normalizedName)}`
+    )?.canonicalName ?? ""
+  );
+  const sharedKnowledgeName =
+    knowledgeNames.length > 0 &&
+    knowledgeNames.every((name) => name && name === knowledgeNames[0])
+      ? knowledgeNames[0]
+      : "";
+  if (sharedKnowledgeName) return sharedKnowledgeName;
+
+  const normalizedBases = Array.from(
+    new Set(
+      rows
+        .map((row) => stripSpecFingerprint(row.normalizedName).trim())
+        .filter(Boolean)
+    )
+  );
+  if (normalizedBases.length === 1) return normalizedBases[0];
+
+  const commonKeyword = findSharedMaterialKeyword(
+    rows.map((row) => row.materialName)
+  );
+  if (commonKeyword) return commonKeyword;
+
+  return normalizedBases[0] || rows[0].materialName.trim() || "未命名物料";
+}
+
+function findSharedMaterialKeyword(names: string[]): string {
+  const compactNames = names
+    .map((name) =>
+      name
+        .toLowerCase()
+        .replace(/\b[a-z]*\d+[a-z0-9-]*\b/giu, "")
+        .replace(/\d+(?:\.\d+)?/g, "")
+        .replace(/[^\p{Script=Han}a-z]+/giu, "")
+    )
+    .filter(Boolean);
+  if (compactNames.length < 2) return "";
+
+  const shortest = [...compactNames].sort((a, b) => a.length - b.length)[0];
+  const ignored = new Set(["黑色", "白色", "彩色", "透明", "配件", "组件", "产品"]);
+  for (let length = Math.min(12, shortest.length); length >= 2; length -= 1) {
+    for (let start = 0; start <= shortest.length - length; start += 1) {
+      const candidate = shortest.slice(start, start + length);
+      if (ignored.has(candidate)) continue;
+      if (compactNames.every((name) => name.includes(candidate))) return candidate;
+    }
+  }
+  return "";
 }
 
 function buildDisplayProductName(rows: CanonicalBomRow[]): string {

@@ -5,7 +5,7 @@ import { BomTable } from "@/components/BomTable";
 import { CostDashboard } from "@/components/CostDashboard";
 import { DetailsDialog } from "@/components/DetailsDialog";
 import { IntegratedCostTable } from "@/components/IntegratedCostTable";
-import { ManualAdjustmentBoard } from "@/components/ManualAdjustmentBoard";
+import { ManualAdjustmentBoard, MaterialAlignmentBoard } from "@/components/ManualAdjustmentBoard";
 import type { ManualGroup } from "@/components/ManualAdjustmentBoard";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
 import { ResultReport } from "@/components/ResultReport";
@@ -34,7 +34,7 @@ type DetailSelection = {
   rows: CanonicalBomRow[];
 };
 
-type WorkspaceView = "upload" | "adjust" | "single" | "compare" | "details" | "report" | "output";
+type WorkspaceView = "upload" | "adjust" | "align" | "single" | "compare" | "details" | "report" | "output";
 
 type WorkspaceModule = "prepare" | "analysis" | "verify" | "deliver";
 
@@ -48,6 +48,11 @@ const VIEW_META: Record<WorkspaceView, { label: string; description: string; ste
     label: "整理物料",
     description: "检查物料归类，把不同叫法整理到一起。",
     steps: ["先选择一家供应商。", "直接修改品类，或把物料拖到右侧品类。", "只需处理明显不一致的项目，其余结果会自动保存。"]
+  },
+  align: {
+    label: "对齐物料",
+    description: "把不同报价中的同一物料放到同一条对比行。",
+    steps: ["先选择需要处理的品类。", "勾选要同时查看的报价。", "抓住物料左侧手柄，拖到另一份报价的对应行。"]
   },
   single: {
     label: "单份成本",
@@ -82,7 +87,7 @@ const WORKSPACE_MODULES: Array<{
   eyebrow: string;
   views: WorkspaceView[];
 }> = [
-  { id: "prepare", label: "准备报价", eyebrow: "01", views: ["upload", "adjust"] },
+  { id: "prepare", label: "准备报价", eyebrow: "01", views: ["upload", "adjust", "align"] },
   { id: "analysis", label: "查看成本", eyebrow: "02", views: ["single", "compare"] },
   { id: "verify", label: "检查明细", eyebrow: "03", views: ["details"] },
   { id: "deliver", label: "结论与导出", eyebrow: "04", views: ["report", "output"] }
@@ -613,6 +618,14 @@ export default function Home() {
               categories={[...comparison.categories, ...manualCategories]}
               onCreateCategory={createManualCategory}
               onDeleteCategory={deleteManualCategory}
+              onUpdateRows={updateRows}
+            />
+          )}
+
+          {activeView === "align" && (
+            <MaterialAlignmentBoard
+              rows={quoteRows}
+              categories={[...comparison.categories, ...manualCategories]}
               onUpdateRows={updateRows}
             />
           )}

@@ -516,20 +516,6 @@ function buildAuditedTotalAmounts(comparison: CostComparison): Record<string, nu
   return totals;
 }
 
-function getTotalCostSourceRows(comparison: CostComparison, supplier: string, costItem: string): CanonicalBomRow[] {
-  const supplierRows = comparison.filteredRows.filter((row) => getComparisonObjectLabel(row) === supplier);
-  if (costItem === "材料成本合计") {
-    return supplierRows.filter((row) => normalizeCostCategory(row.category, row.materialName) === "材料成本合计" || isVisualCostRow(row));
-  }
-  if (costItem === "人工/管理/利润合计") {
-    return supplierRows.filter((row) => ["人工", "人工/管理/利润"].includes(normalizeCostCategory(row.category, row.materialName)));
-  }
-  if (costItem === "出厂价") {
-    return supplierRows.filter((row) => normalizeCostCategory(row.category, row.materialName) === "出厂价");
-  }
-  return supplierRows;
-}
-
 function getRowDiffStats(row: Record<string, string | number>, suppliers: string[]) {
   const values = suppliers
     .map((supplier) => Number(row[supplier]))
@@ -550,7 +536,9 @@ function buildSupplierCategoryPieRows(rows: CanonicalBomRow[]) {
     current.rows.push(row);
     groups.set(category, current);
   });
-  return compactChartRows(Array.from(groups.values()).filter((item) => item.value > 0).sort((a, b) => b.value - a.value), 10);
+  return Array.from(groups.values())
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value);
 }
 
 function buildSupplierMaterialPieRows(rows: CanonicalBomRow[]) {
