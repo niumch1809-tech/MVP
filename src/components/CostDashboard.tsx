@@ -15,8 +15,9 @@ import {
 } from "recharts";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { DetailsDialog } from "@/components/DetailsDialog";
 import { CanonicalBomRow } from "@/types/bom";
-import { CostComparison, getComparisonObjectLabel, MaterialComparisonItem, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { CostComparison, getComparisonObjectLabel, getEffectiveCostCategory, MaterialComparisonItem } from "@/lib/bom/cost-comparison";
 import { isRollupCostRow, isSummaryCostItem } from "@/lib/bom/normalize";
 import {
   getCostCategoryColor,
@@ -32,6 +33,9 @@ type Props = {
   onSelectCategory: (category: string) => void;
   onSelectMaterial: (materialName: string) => void;
   onSelectSupplier: (supplierName: string) => void;
+  supplierAliases: Record<string, string>;
+  onSupplierAliasChange: (supplierName: string, alias: string) => void;
+  conclusion?: ReactNode;
 };
 
 const SUPPLIER_COLORS = SUPPLIER_CHART_COLORS;
@@ -45,7 +49,7 @@ const GROUPED_BAR_SIZE = 18;
 const BAR_GAP = 3;
 const BAR_CATEGORY_GAP = "8%";
 const DENSE_LABEL_CELL_LIMIT = 12;
-type MaterialSortKey = "materialName" | "category" | "minAmount" | "maxAmount" | "diffAmount" | "diffRate" | "coverage";
+type MaterialSortKey = "materialName" | "category" | "diffAmount" | "diffRate" | "coverage";
 type MaterialSortDirection = "asc" | "desc";
 type FlatCategoryChartRow = {
   axisKey: string;
@@ -68,23 +72,23 @@ export function CostDashboard({
   onInspectRows,
   onSelectCategory,
   onSelectMaterial,
-  onSelectSupplier
+  onSelectSupplier,
+  supplierAliases,
+  onSupplierAliasChange,
+  conclusion
 }: Props) {
   const supplierTotalRows = useMemo(
-    () => withDiffMetrics(comparison.supplierTotals, ["totalAmount"]),
-    [comparison.supplierTotals]
+    () =>
+      withDiffMetrics(comparison.supplierTotals, ["totalAmount"]).map((row) => ({
+        ...row,
+        displaySupplierName: supplierAliases[String(row.supplierName)]?.trim() || String(row.supplierName)
+      })),
+    [comparison.supplierTotals, supplierAliases]
   );
-  const currentCategorySeriesCount = getVisibleSeriesCount(comparison.activeSuppliers, comparison.categoryComparison);
-  const shouldStackPrimaryCharts =
-    !selectedCategory && comparison.categoryComparison.length * currentCategorySeriesCount > DENSE_LABEL_CELL_LIMIT;
-
+  const [isAliasEditorOpen, setIsAliasEditorOpen] = useState(false);
   return (
     <div id="cost-dashboard-focus" className="reveal-in grid scroll-mt-4 gap-4">
-      <div
-        className={`grid gap-4 ${
-          shouldStackPrimaryCharts ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(300px,0.68fr)_minmax(0,1.32fr)]"
-        }`}
-      >
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(300px,0.42fr)_minmax(0,1.58fr)]">
         <section className={PANEL_CLASS}>
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
@@ -96,7 +100,7 @@ export function CostDashboard({
             <span className="type-caption text-slate-500">点击柱子聚焦这份报价</span>
           </div>
           <div className={CHART_SHELL_CLASS}>
-            <div className="mb-2 grid max-h-[132px] gap-2 overflow-auto pr-1 sm:grid-cols-2 2xl:grid-cols-3">
+            <div className="mb-2 grid max-h-[104px] gap-2 overflow-auto pr-1 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               {comparison.supplierTotals.map((supplier) => (
                 <button
                   key={supplier.supplierName}
@@ -104,16 +108,18 @@ export function CostDashboard({
                   className={`motion-lift flex items-center justify-between ${SURFACE_RADIUS} border border-slate-200/80 bg-white/82 px-3 py-2.5 text-left text-[13px] active:scale-[0.99]`}
                   onClick={() => onSelectSupplier(supplier.supplierName)}
                 >
-                  <span className="font-semibold text-slate-600">{supplier.supplierName}</span>
+                  <span className="truncate font-semibold text-slate-600" title={supplier.supplierName}>
+                    {supplierAliases[supplier.supplierName]?.trim() || supplier.supplierName}
+                  </span>
                   <span className="font-bold text-ink">{formatMoney(supplier.totalAmount)}</span>
                 </button>
               ))}
             </div>
-            <ChartFrame height={220} minHeight={200} maxHeight={420} minWidth={Math.max(360, supplierTotalRows.length * 92)}>
+            <ChartFrame height={180} minHeight={170} maxHeight={260} minWidth={Math.max(280, supplierTotalRows.length * 72)}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={supplierTotalRows} margin={{ top: 18, right: 10, left: 0, bottom: 0 }} barCategoryGap={BAR_CATEGORY_GAP}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="supplierName" tick={{ fontSize: 12 }} />
+                <XAxis dataKey="displaySupplierName" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip content={<DiffTooltip />} />
                 <Bar
@@ -143,28 +149,36 @@ export function CostDashboard({
           </div>
         </section>
 
-        {selectedCategory ? (
-          <MaterialChart
-            comparison={comparison}
-            selectedCategory={selectedCategory}
-            onSelectMaterial={onSelectMaterial}
-          />
-        ) : (
-          <CategoryChart comparison={comparison} onSelectCategory={onSelectCategory} />
-        )}
+        <SupplierCostStructurePies
+          comparison={comparison}
+          selectedCategory={selectedCategory}
+          onSelectCategory={onSelectCategory}
+          onSelectMaterial={onSelectMaterial}
+          supplierAliases={supplierAliases}
+        />
       </div>
+
+      {selectedCategory ? (
+        <MaterialChart
+          comparison={comparison}
+          selectedCategory={selectedCategory}
+          onSelectMaterial={onSelectMaterial}
+        />
+      ) : (
+        <CategoryChart
+          comparison={comparison}
+          supplierAliases={supplierAliases}
+          onOpenAliasEditor={() => setIsAliasEditorOpen(true)}
+          onSelectCategory={onSelectCategory}
+        />
+      )}
+
+      {conclusion}
 
       <TotalCostComparison
         comparison={comparison}
         selectedCategory={selectedCategory}
         onSelectSupplier={onSelectSupplier}
-      />
-
-      <SupplierCostStructurePies
-        comparison={comparison}
-        selectedCategory={selectedCategory}
-        onSelectCategory={onSelectCategory}
-        onSelectMaterial={onSelectMaterial}
       />
 
       <section className={PANEL_CLASS}>
@@ -181,6 +195,14 @@ export function CostDashboard({
         </div>
         <MaterialComparisonTable comparison={comparison} onInspectRows={onInspectRows} />
       </section>
+
+      <SupplierAliasEditor
+        open={isAliasEditorOpen}
+        suppliers={comparison.activeSuppliers}
+        aliases={supplierAliases}
+        onAliasChange={onSupplierAliasChange}
+        onClose={() => setIsAliasEditorOpen(false)}
+      />
     </div>
   );
 }
@@ -239,12 +261,10 @@ function TotalCostComparison({
         </div>
 
         <div className={`${TABLE_SHELL_CLASS} max-w-full overflow-auto`}>
-          <table className="type-table resizable-table min-w-[620px] text-left">
+          <table className="type-table resizable-table min-w-[380px] text-left">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-3 py-2 font-semibold">成本项</th>
-                <th className="px-3 py-2 text-right font-semibold">最低</th>
-                <th className="px-3 py-2 text-right font-semibold">最高</th>
                 <th className="px-3 py-2 text-right font-semibold">差值</th>
                 <th className="px-3 py-2 text-right font-semibold">差异</th>
               </tr>
@@ -255,8 +275,6 @@ function TotalCostComparison({
                 return (
                   <tr key={row.costItem} className="border-t border-slate-100">
                     <td className="whitespace-nowrap px-3 py-2 font-medium text-ink">{row.costItem}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(stats.min)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(stats.max)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-danger">{formatMoney(stats.diffAmount)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-danger">{formatPercent(stats.diffRate)}</td>
                   </tr>
@@ -264,7 +282,7 @@ function TotalCostComparison({
               })}
               {totalRows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                  <td colSpan={3} className="px-3 py-6 text-center text-slate-500">
                     暂无总成本数据。请确认 BOM 中是否包含材料合计、人工/管理/利润或出厂价。
                   </td>
                 </tr>
@@ -281,8 +299,9 @@ function SupplierCostStructurePies({
   comparison,
   selectedCategory,
   onSelectCategory,
-  onSelectMaterial
-}: Pick<Props, "comparison" | "selectedCategory" | "onSelectCategory" | "onSelectMaterial">) {
+  onSelectMaterial,
+  supplierAliases
+}: Pick<Props, "comparison" | "selectedCategory" | "onSelectCategory" | "onSelectMaterial" | "supplierAliases">) {
   const visualRowsBySupplier = useMemo(() => {
     const groups = new Map<string, CanonicalBomRow[]>();
     comparison.filteredRows.forEach((row) => {
@@ -344,6 +363,7 @@ function SupplierCostStructurePies({
             selectedCategory={selectedCategory}
             onSelectCategory={onSelectCategory}
             onSelectMaterial={onSelectMaterial}
+            displaySupplier={supplierAliases[supplier]?.trim() || supplier}
           />
         ))}
       </div>
@@ -357,9 +377,11 @@ function SupplierPieCard({
   rows,
   selectedCategory,
   onSelectCategory,
-  onSelectMaterial
+  onSelectMaterial,
+  displaySupplier
 }: Pick<Props, "selectedCategory" | "onSelectCategory" | "onSelectMaterial"> & {
   supplier: string;
+  displaySupplier: string;
   rows: CanonicalBomRow[];
 }) {
   const pieRows = useMemo(
@@ -367,19 +389,49 @@ function SupplierPieCard({
     [rows, selectedCategory]
   );
   const total = useMemo(() => pieRows.reduce((sum, item) => sum + item.value, 0), [pieRows]);
+  const leadingRows = useMemo(
+    () => [...pieRows].sort((a, b) => b.value - a.value).slice(0, 3),
+    [pieRows]
+  );
+
+  const selectPieRow = (name: string) => {
+    if (selectedCategory) {
+      onSelectMaterial(name);
+      return;
+    }
+    onSelectCategory(name);
+  };
 
   return (
-    <div className={`${CHART_SHELL_CLASS} min-w-0`}>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="type-panel-title truncate text-ink">{supplier}</h3>
-          <p className="type-caption text-slate-500">{formatMoney(total)}</p>
+    <div className={`${CHART_SHELL_CLASS} grid min-w-0 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_210px]`}>
+      <div className="min-w-0 self-stretch py-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+          <h3 className="type-panel-title truncate text-ink" title={supplier}>{displaySupplier}</h3>
+            <p className="mt-1 text-lg font-semibold text-slate-900">{formatMoney(total)}</p>
+          </div>
+          <span className={`type-caption ${SURFACE_RADIUS} shrink-0 bg-white/82 px-2 py-1 font-semibold text-slate-500 ring-1 ring-slate-200/80`}>
+            {pieRows.length} 项
+          </span>
         </div>
-        <span className={`type-caption ${SURFACE_RADIUS} bg-white/82 px-2 py-1 font-semibold text-slate-500 ring-1 ring-slate-200/80`}>
-          {pieRows.length} 项
-        </span>
+
+        <div className="mt-4 grid gap-1.5">
+          {leadingRows.map((item, index) => (
+            <button
+              key={item.name}
+              type="button"
+              className="grid min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2 rounded-[9px] px-1.5 py-1 text-left transition hover:bg-white"
+              onClick={() => selectPieRow(item.name)}
+              title={`${item.name}：${formatMoney(item.value)} / ${formatPercent(total > 0 ? item.value / total : 0)}`}
+            >
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getPieSliceColor(item.name, index, selectedCategory) }} />
+              <span className="truncate text-xs font-medium text-slate-700">{item.name}</span>
+              <span className="text-[11px] tabular-nums text-slate-500">{formatPercent(total > 0 ? item.value / total : 0)}</span>
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="mx-auto h-[210px] w-[220px] max-w-full overflow-hidden">
+      <div className="mx-auto h-[210px] w-[210px] max-w-full overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
             <Tooltip
@@ -395,18 +447,14 @@ function SupplierPieCard({
               nameKey="name"
               cx="50%"
               cy="50%"
-              innerRadius={42}
-              outerRadius={74}
+              innerRadius={50}
+              outerRadius={86}
               paddingAngle={2}
               stroke="rgba(255,255,255,0.86)"
               strokeWidth={2}
               onClick={(data) => {
                 const name = String(data.name ?? "");
-                if (selectedCategory) {
-                  onSelectMaterial(name);
-                  return;
-                }
-                onSelectCategory(name);
+                selectPieRow(name);
               }}
             >
               {pieRows.map((entry, index) => (
@@ -416,7 +464,7 @@ function SupplierPieCard({
           </PieChart>
         </ResponsiveContainer>
       </div>
-      {pieRows.length === 0 && <p className="mt-2 text-xs text-slate-500">当前选择下没有可显示的数据。</p>}
+      {pieRows.length === 0 && <p className="text-xs text-slate-500 sm:col-span-2">当前选择下没有可显示的数据。</p>}
     </div>
   );
 }
@@ -530,7 +578,7 @@ function getRowDiffStats(row: Record<string, string | number>, suppliers: string
 function buildSupplierCategoryPieRows(rows: CanonicalBomRow[]) {
   const groups = new Map<string, { name: string; value: number; rows: CanonicalBomRow[] }>();
   rows.forEach((row) => {
-    const category = normalizeCostCategory(row.category, row.materialName);
+    const category = getEffectiveCostCategory(row);
     const current = groups.get(category) ?? { name: category, value: 0, rows: [] };
     current.value += row.amount;
     current.rows.push(row);
@@ -610,9 +658,15 @@ function getFlatBarSize(barCount: number) {
   return 16;
 }
 
-function getSupplierShortName(name: string, comparisonNames: string[] = [name]) {
+function getSupplierShortName(
+  name: string,
+  comparisonNames: string[] = [name],
+  aliases: Record<string, string> = {}
+) {
   const trimmed = name.trim();
   if (!trimmed) return "";
+  const customAlias = aliases[trimmed]?.trim();
+  if (customAlias) return customAlias.slice(0, 8);
   const { supplierName, quoteDescriptor } = splitComparisonName(trimmed);
   const comparisonSupplierNames = comparisonNames.map((item) => splitComparisonName(item).supplierName).filter(Boolean);
   const uniqueSupplierCount = new Set(comparisonSupplierNames).size;
@@ -712,7 +766,10 @@ function getMaterialDisplayName(materialName: string, rows: CanonicalBomRow[]) {
   return name || materialName;
 }
 
-function buildFlatCategoryChartRows(comparison: CostComparison): FlatCategoryChartRow[] {
+function buildFlatCategoryChartRows(
+  comparison: CostComparison,
+  supplierAliases: Record<string, string>
+): FlatCategoryChartRow[] {
   return comparison.categoryComparison.flatMap((categoryRow, categoryIndex) => {
     const values = comparison.activeSuppliers
       .map((supplier, supplierIndex) => ({
@@ -728,7 +785,11 @@ function buildFlatCategoryChartRows(comparison: CostComparison): FlatCategoryCha
     const rows: FlatCategoryChartRow[] = values.map((point, visibleIndex) => {
       const diffAmount = min > 0 ? point.value - min : 0;
       const diffRate = min > 0 ? diffAmount / min : 0;
-      const supplierShort = getSupplierShortName(point.supplier, comparison.activeSuppliers);
+      const supplierShort = getSupplierShortName(
+        point.supplier,
+        comparison.activeSuppliers,
+        supplierAliases
+      );
       const categoryTick = visibleIndex === middleIndex ? category : "";
 
       return {
@@ -767,17 +828,105 @@ function buildFlatCategoryChartRows(comparison: CostComparison): FlatCategoryCha
   });
 }
 
+function SupplierAliasEditor({
+  open,
+  suppliers,
+  aliases,
+  onAliasChange,
+  onClose
+}: {
+  open: boolean;
+  suppliers: string[];
+  aliases: Record<string, string>;
+  onAliasChange: (supplier: string, alias: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <DetailsDialog
+      open={open}
+      title="设置图表简称"
+      eyebrow="品类成本对比"
+      onClose={onClose}
+    >
+      <p className="text-xs leading-5 text-slate-500">
+        简称只用于图表横轴，完整报价名称、筛选条件、来源和导出内容不会改变。留空时使用系统自动简称。
+      </p>
+
+      <div className="mt-4 grid gap-2">
+        {suppliers.map((supplier) => {
+          const automaticAlias = getSupplierShortName(supplier, suppliers);
+          return (
+            <label
+              key={supplier}
+              className="grid min-w-0 gap-2 rounded-[12px] border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-semibold text-slate-800" title={supplier}>
+                  {supplier}
+                </span>
+                <span className="mt-1 block text-[10px] text-slate-400">
+                  自动简称：{automaticAlias || "未生成"}
+                </span>
+              </span>
+              <span className="relative block">
+                <input
+                  value={aliases[supplier] ?? ""}
+                  onChange={(event) => onAliasChange(supplier, event.target.value)}
+                  maxLength={8}
+                  placeholder={automaticAlias || "输入简称"}
+                  className="h-10 w-full rounded-[10px] border border-slate-200 bg-white px-3 pr-12 text-sm font-semibold text-slate-900 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+                  {(aliases[supplier] ?? "").length}/8
+                </span>
+              </span>
+            </label>
+          );
+        })}
+        {suppliers.length === 0 && (
+          <div className="rounded-[12px] bg-slate-50 p-6 text-center text-xs text-slate-500">
+            先选择至少一份报价，再设置图表简称。
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+        <button
+          type="button"
+          onClick={() => suppliers.forEach((supplier) => onAliasChange(supplier, ""))}
+          disabled={!suppliers.some((supplier) => aliases[supplier])}
+          className="rounded-[10px] px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          全部恢复自动
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="button-primary rounded-[10px] px-5 py-2 text-xs font-semibold"
+        >
+          完成
+        </button>
+      </div>
+    </DetailsDialog>
+  );
+}
+
 function CategoryChart({
   comparison,
+  supplierAliases,
+  onOpenAliasEditor,
   onSelectCategory
-}: Pick<Props, "comparison" | "onSelectCategory">) {
+}: Pick<Props, "comparison" | "onSelectCategory"> & {
+  supplierAliases: Record<string, string>;
+  onOpenAliasEditor: () => void;
+}) {
   const chartRows = useMemo(
     () => withDiffMetrics(comparison.categoryComparison, comparison.activeSuppliers),
     [comparison.activeSuppliers, comparison.categoryComparison]
   );
   const flatChartRows = useMemo(
-    () => buildFlatCategoryChartRows(comparison),
-    [comparison]
+    () => buildFlatCategoryChartRows(comparison, supplierAliases),
+    [comparison, supplierAliases]
   );
   const categoryCount = chartRows.length;
   const supplierCount = getVisibleSeriesCount(comparison.activeSuppliers, chartRows);
@@ -788,12 +937,21 @@ function CategoryChart({
 
   return (
     <section className={PANEL_CLASS}>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="type-panel-title text-ink">品类成本对比</h2>
           <p className="type-caption mt-1 text-slate-500">把同一品类的不同报价放在一起比较。</p>
         </div>
-        <span className="type-caption text-slate-500">点击品类查看物料金额与占比</span>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onOpenAliasEditor}
+            className="rounded-[9px] border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+          >
+            简称设置
+          </button>
+          <span className="hidden type-caption text-slate-500 sm:inline">点击品类查看物料金额与占比</span>
+        </div>
       </div>
       <div className={CHART_SHELL_CLASS}>
         <ChartFrame height={chartHeight} minHeight={260} maxHeight={620} minWidth={chartWidth ? undefined : chartMinWidth} width={chartWidth}>
@@ -970,7 +1128,7 @@ function MaterialComparisonTable({
     <div className={`max-h-[560px] max-w-full overflow-auto ${TABLE_SHELL_CLASS}`}>
       <table
         className="type-table resizable-table text-left"
-        style={{ minWidth: Math.max(1120, suppliers.length * 128 + 760) }}
+        style={{ minWidth: Math.max(900, suppliers.length * 128 + 600) }}
       >
         <thead className="sticky top-0 bg-white/95 text-xs text-slate-600 shadow-sm">
           <tr>
@@ -983,8 +1141,6 @@ function MaterialComparisonTable({
                 {supplier}
               </th>
             ))}
-            <SortableHeader label="最低金额" active={sortKey === "minAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("minAmount")} />
-            <SortableHeader label="最高金额" active={sortKey === "maxAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("maxAmount")} />
             <SortableHeader label="差异" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
             <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">风险</th>
             <SortableHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
@@ -1011,8 +1167,6 @@ function MaterialComparisonTable({
                     </td>
                   );
                 })}
-                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(item.minAmount)}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-700">{formatMoney(item.maxAmount)}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-danger">
                   {formatMoney(item.diffAmount)}
                   <span className="ml-1 text-xs text-slate-500">{formatPercent(item.diffRate)}</span>
@@ -1030,7 +1184,7 @@ function MaterialComparisonTable({
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={suppliers.length + 9} className="px-3 py-6 text-center text-sm text-slate-500">
+              <td colSpan={suppliers.length + 7} className="px-3 py-6 text-center text-sm text-slate-500">
                 当前筛选范围内暂无可对比物料。请检查品类筛选或在手工校准中合并同类物料。
               </td>
             </tr>
@@ -1181,8 +1335,6 @@ function SortableHeader({
 function compareMaterial(a: MaterialComparisonItem, b: MaterialComparisonItem, key: MaterialSortKey): number {
   if (key === "materialName") return a.materialName.localeCompare(b.materialName, "zh-CN");
   if (key === "category") return a.category.localeCompare(b.category, "zh-CN");
-  if (key === "minAmount") return a.minAmount - b.minAmount;
-  if (key === "maxAmount") return a.maxAmount - b.maxAmount;
   if (key === "diffRate") return a.diffRate - b.diffRate;
   if (key === "coverage") return a.suppliers.length - b.suppliers.length;
   return a.diffAmount - b.diffAmount;
@@ -1262,7 +1414,7 @@ function compactChartRows<T extends { name: string; value: number; rows: Canonic
   const visible = rows.slice(0, limit - 1);
   const otherRows = rows.slice(limit - 1);
   const other = {
-    name: "其他",
+    name: `其余 ${otherRows.length} 项物料`,
     value: otherRows.reduce((sum, item) => sum + item.value, 0),
     rows: otherRows.flatMap((item) => item.rows)
   } as T;

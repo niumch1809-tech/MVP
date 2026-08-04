@@ -1,5 +1,5 @@
 import type { CanonicalBomRow } from "@/types/bom";
-import { buildCostComparison, getComparisonObjectLabel, normalizeCostCategory } from "./cost-comparison";
+import { buildCostComparison, getComparisonObjectLabel, getEffectiveCostCategory } from "./cost-comparison";
 import { isRollupCostRow, isSummaryCostItem } from "./normalize";
 
 export type SingleBomCategoryItem = {
@@ -166,7 +166,7 @@ function isMaterialDetailRow(row: CanonicalBomRow): boolean {
 }
 
 function effectiveCategory(row: CanonicalBomRow): string {
-  return row.manualCategory?.trim() || normalizeCostCategory(row.category, row.materialName);
+  return getEffectiveCostCategory(row);
 }
 
 function buildCategoryItems(

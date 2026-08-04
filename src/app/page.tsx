@@ -12,7 +12,7 @@ import { ResultReport } from "@/components/ResultReport";
 import { SingleBomAnalysis } from "@/components/SingleBomAnalysis";
 import { WorkspaceInteractionLayer } from "@/components/WorkspaceInteractionLayer";
 import { parseBomFileInBrowser } from "@/lib/bom/browser-parser";
-import { buildCostComparison, CostFilters, getComparisonObjectLabel, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { buildCostComparison, CostFilters, getComparisonObjectLabel, getEffectiveCostCategory } from "@/lib/bom/cost-comparison";
 import { getMaterialPriceComparisons } from "@/lib/bom/material-price";
 import { parseMaterialPriceFile } from "@/lib/bom/price-table-client";
 import { buildTemplateOutputArray } from "@/lib/bom/template-export";
@@ -28,13 +28,14 @@ import {
 const LOCAL_RECORDS_KEY = "ai-cost-audit:bom-records";
 const LOCAL_MANUAL_CATEGORIES_KEY = "ai-cost-audit:manual-categories";
 const LOCAL_MANUAL_GROUPS_KEY = "ai-cost-audit:manual-groups";
+const LOCAL_SUPPLIER_ALIASES_KEY = "ai-cost-audit:supplier-chart-aliases";
 
 type DetailSelection = {
   title: string;
   rows: CanonicalBomRow[];
 };
 
-type WorkspaceView = "upload" | "adjust" | "align" | "single" | "compare" | "details" | "report" | "output";
+type WorkspaceView = "upload" | "adjust" | "align" | "single" | "compare" | "details" | "output";
 
 type WorkspaceModule = "prepare" | "analysis" | "verify" | "deliver";
 
@@ -61,18 +62,13 @@ const VIEW_META: Record<WorkspaceView, { label: string; description: string; ste
   },
   compare: {
     label: "多份比较",
-    description: "比较不同供应商、产品或型号的成本差别。",
-    steps: ["勾选需要比较的报价。", "点击品类图或成本结构图，可在当前页继续查看物料金额与占比。", "需要追溯原始内容时，再点击下方物料表。"]
+    description: "比较不同供应商、产品或型号的成本差别，并直接形成沟通结论。",
+    steps: ["勾选需要比较的报价。", "先看总价、品类和物料差异，再查看系统整理的沟通重点。", "点击结论卡片会在当前页弹出对应明细，不会离开比较页面。"]
   },
   details: {
     label: "明细检查",
     description: "查看每条物料，处理需要确认的数据和参考价差异。",
     steps: ["先用顶部条件找到目标物料。", "点击“待检查”或“原始内容”展开详情。", "修改后会重新检查数量、单价和金额。"]
-  },
-  report: {
-    label: "分析结论",
-    description: "快速了解谁更便宜、差异在哪里、先谈哪些项目。",
-    steps: ["先看推荐结论和可节省金额。", "按品类和物料的优先级准备谈价。", "数据不完整时，系统会先建议补齐而不是直接选供应商。"]
   },
   output: {
     label: "导出结果",
@@ -88,9 +84,9 @@ const WORKSPACE_MODULES: Array<{
   views: WorkspaceView[];
 }> = [
   { id: "prepare", label: "准备报价", eyebrow: "01", views: ["upload", "adjust", "align"] },
-  { id: "analysis", label: "查看成本", eyebrow: "02", views: ["single", "compare"] },
+  { id: "analysis", label: "查看成本与结论", eyebrow: "02", views: ["single", "compare"] },
   { id: "verify", label: "检查明细", eyebrow: "03", views: ["details"] },
-  { id: "deliver", label: "结论与导出", eyebrow: "04", views: ["report", "output"] }
+  { id: "deliver", label: "导出", eyebrow: "04", views: ["output"] }
 ];
 
 export default function Home() {
@@ -120,8 +116,10 @@ export default function Home() {
   });
   const [outputNameSupplier, setOutputNameSupplier] = useState("");
   const [detailSelection, setDetailSelection] = useState<DetailSelection | null>(null);
+  const [focusedDetail, setFocusedDetail] = useState<DetailSelection | null>(null);
   const [isViewHelpOpen, setIsViewHelpOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [supplierAliases, setSupplierAliases] = useState<Record<string, string>>({});
   const [, startFilterTransition] = useTransition();
 
   const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
@@ -153,7 +151,19 @@ export default function Home() {
 
   useEffect(() => {
     refresh();
+    setSupplierAliases(loadLocalRecord<string>(LOCAL_SUPPLIER_ALIASES_KEY));
   }, [refresh]);
+
+  function updateSupplierAlias(supplier: string, alias: string) {
+    setSupplierAliases((current) => {
+      const next = { ...current };
+      const value = alias.trimStart().slice(0, 8);
+      if (value) next[supplier] = value;
+      else delete next[supplier];
+      saveLocalRecord(LOCAL_SUPPLIER_ALIASES_KEY, next);
+      return next;
+    });
+  }
 
   function toggleSidebar() {
     setIsSidebarOpen((current) => !current);
@@ -245,6 +255,14 @@ export default function Home() {
           }
         : current
     );
+    setFocusedDetail((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.map((row) => (row.id === rowId ? { ...row, ...patch } : row))
+          }
+        : current
+    );
   }
 
   function deleteSingleRow(rowId: string) {
@@ -258,6 +276,14 @@ export default function Home() {
     saveLocalRecords(nextRecords);
     setRecords(nextRecords);
     setDetailSelection((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.filter((row) => row.id !== rowId)
+          }
+        : current
+    );
+    setFocusedDetail((current) =>
       current
         ? {
             ...current,
@@ -593,6 +619,7 @@ export default function Home() {
                 categoryOptions={categoryOptions}
                 comparison={comparison}
                 filters={filters}
+                supplierAliases={supplierAliases}
                 onReset={resetFilters}
                 onSelectAllSuppliers={selectAllSuppliers}
                 onSupplierChecked={setSupplierChecked}
@@ -601,12 +628,23 @@ export default function Home() {
               <CostDashboard
                 comparison={comparison}
                 selectedCategory={filters.category}
+                supplierAliases={supplierAliases}
+                onSupplierAliasChange={updateSupplierAlias}
+                conclusion={
+                  <ResultReport
+                    comparison={comparison}
+                    selectedCategory={filters.category}
+                    supplierAliases={supplierAliases}
+                    onInspectRows={(selectedRows, title) => {
+                      setFocusedDetail({ rows: selectedRows, title });
+                    }}
+                  />
+                }
                 onSelectCategory={selectChartCategory}
                 onSelectMaterial={selectChartMaterial}
                 onSelectSupplier={selectChartSupplier}
                 onInspectRows={(selectedRows, title) => {
-                  setDetailSelection({ rows: selectedRows, title });
-                  setActiveView("details");
+                  setFocusedDetail({ rows: selectedRows, title });
                 }}
               />
             </>
@@ -646,6 +684,7 @@ export default function Home() {
                 categoryOptions={categoryOptions}
                 comparison={comparison}
                 filters={filters}
+                supplierAliases={supplierAliases}
                 onReset={resetFilters}
                 onSelectAllSuppliers={selectAllSuppliers}
                 onSupplierChecked={setSupplierChecked}
@@ -690,28 +729,6 @@ export default function Home() {
             </>
           )}
 
-          {activeView === "report" && (
-            <>
-              <FilterPanel
-                categoryOptions={categoryOptions}
-                comparison={comparison}
-                filters={filters}
-                onReset={resetFilters}
-                onSelectAllSuppliers={selectAllSuppliers}
-                onSupplierChecked={setSupplierChecked}
-                onUpdateFilter={updateFilter}
-              />
-              <ResultReport
-                comparison={comparison}
-                selectedCategory={filters.category}
-                onInspectRows={(selectedRows, title) => {
-                  setDetailSelection({ rows: selectedRows, title });
-                  setActiveView("details");
-                }}
-              />
-            </>
-          )}
-
           {activeView === "output" && (
             <section className="reveal-in grid min-w-0 max-w-full gap-4 overflow-hidden">
               <div className="app-surface rounded-[20px] p-4">
@@ -750,6 +767,7 @@ export default function Home() {
                 categoryOptions={categoryOptions}
                 comparison={comparison}
                 filters={filters}
+                supplierAliases={supplierAliases}
                 onReset={resetFilters}
                 onSelectAllSuppliers={selectAllSuppliers}
                 onSupplierChecked={setSupplierChecked}
@@ -765,10 +783,68 @@ export default function Home() {
               />
             </section>
           )}
+
+          <DetailsDialog
+            open={Boolean(focusedDetail)}
+            title={focusedDetail?.title ?? "明细"}
+            eyebrow="对应条目"
+            size="full"
+            onClose={() => setFocusedDetail(null)}
+          >
+            <p className="mb-3 text-xs leading-5 text-slate-500">
+              已按报价分栏显示对应物料，便于直接核对名称、规格和金额。
+            </p>
+            <div className="grid max-h-[68dvh] min-w-0 gap-3 overflow-y-auto pr-1 xl:grid-cols-2">
+              {groupRowsByQuote(focusedDetail?.rows ?? []).map(([quote, quoteRows]) => (
+                <section key={quote} className="min-w-0 rounded-[16px] border border-slate-200 bg-slate-50/50 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="truncate text-sm font-semibold text-slate-900" title={quote}>{quote}</h3>
+                    <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200">{quoteRows.length} 项</span>
+                  </div>
+                  <div className="grid gap-2">
+                    {quoteRows.map((row) => (
+                      <article key={row.id} className="min-w-0 rounded-[12px] border border-slate-200 bg-white px-3 py-2.5 shadow-[0_4px_12px_rgba(15,23,42,0.03)]">
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-semibold text-slate-900" title={row.materialName}>{row.materialName}</p>
+                            <p className="mt-1 truncate text-[11px] text-slate-400" title={row.spec || "无规格"}>{row.spec || "无规格"}</p>
+                          </div>
+                          <strong className="shrink-0 text-[13px] tabular-nums text-slate-900">¥{formatCompactMoney(row.amount)}</strong>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                          <span>{formatCompactNumber(row.quantity)} {row.unit || "件"}</span>
+                          <span>{row.unitPrice > 0 ? `单价 ¥${formatCompactMoney(row.unitPrice)}` : "未提供单价"}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </DetailsDialog>
         </section>
       </div>
     </main>
   );
+}
+
+function groupRowsByQuote(rows: CanonicalBomRow[]): Array<[string, CanonicalBomRow[]]> {
+  const groups = new Map<string, CanonicalBomRow[]>();
+  rows.forEach((row) => {
+    const quote = getComparisonObjectLabel(row);
+    const group = groups.get(quote);
+    if (group) group.push(row);
+    else groups.set(quote, [row]);
+  });
+  return [...groups.entries()];
+}
+
+function formatCompactMoney(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString("zh-CN", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "0";
+}
+
+function formatCompactNumber(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: 3 }) : "0";
 }
 
 async function parseSelectedFiles(
@@ -836,6 +912,25 @@ function saveLocalArray<T>(key: string, value: T[]) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function loadLocalRecord<T>(key: string): Record<string, T> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as Record<string, T>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalRecord<T>(key: string, value: Record<string, T>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Keep the in-memory preference when browser storage is unavailable.
+  }
+}
+
 function getFileSourceSignature(file: File): string {
   return [file.name, file.size, file.lastModified].join("::");
 }
@@ -866,7 +961,7 @@ function buildCategoryOptionsForFilters(rows: CanonicalBomRow[], filters: CostFi
       const materialText = `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec}`.toLowerCase();
       if (!materialText.includes(query)) return;
     }
-    categories.add(normalizeCostCategory(row.category, row.materialName));
+    categories.add(getEffectiveCostCategory(row));
   });
 
   return Array.from(categories).sort((a, b) => a.localeCompare(b, "zh-CN"));
@@ -941,7 +1036,7 @@ function UploadView({
               onClick={() => setIsGuideOpen(true)}
               className="button-primary motion-lift rounded-[14px] px-5 py-3 text-sm font-semibold active:scale-[0.98]"
             >
-              使用说明
+              完整使用手册
             </button>
             <a
               href="/templates/bom-input-output-template.xlsx"
@@ -1190,41 +1285,216 @@ function cleanImportedIdentity(value: string | undefined) {
 }
 
 function UserGuideModal({ onClose }: { onClose: () => void }) {
-  const steps = [
+  const quickSteps = [
     {
-      title: "1. 准备报价",
-      body: "上传报价文件，再到“整理物料”检查品类和不同叫法。"
+      title: "准备报价",
+      body: "导入、整理并对齐 BOM"
     },
     {
-      title: "2. 查看成本",
-      body: "看一份报价的成本组成，或把多份报价放在一起比较。"
+      title: "查看成本与结论",
+      body: "分析单份或比较多份报价"
     },
     {
-      title: "3. 检查明细",
-      body: "确认数量、单价、金额和参考价；有问题的行可以直接修改。"
+      title: "检查明细",
+      body: "修正需要确认的条目"
     },
     {
-      title: "4. 得到结果",
-      body: "先看分析结论，再导出可直接与供应商核对的 Excel。"
+      title: "导出",
+      body: "生成完整成本核价表"
     }
   ];
+  const guideSections = [
+    {
+      id: "start",
+      label: "开始前",
+      title: "准备一份容易识别的 BOM",
+      intro: "不必提前把所有表格整理得完全一致，平台会先尝试识别。信息越清楚，后续人工确认越少。",
+      steps: [
+        "推荐直接使用“下载输入模板”。表头建议写成“供应商-产品名-型号-颜色”，规格放在“规格描述”列。",
+        "也可以上传供应商原有 Excel 或 CSV。支持一次选择多个文件，也支持一个文件包含多个工作表。",
+        "同一供应商的不同产品或不同代产品会作为不同报价显示，因此不需要为了比较而修改供应商名称。",
+        "文件中的材料合计、人工/管理/利润和最终报价应保留，平台会把它们与普通物料分开处理。"
+      ],
+      note: "真实 BOM 和解析结果保存在当前浏览器中，不会随源码上传到 GitHub。"
+    },
+    {
+      id: "upload",
+      label: "导入文件",
+      title: "上传并确认识别结果",
+      intro: "先决定文件用于本次比较，还是只作为历史参考，然后再导入。",
+      steps: [
+        "“本次报价”会进入单份分析、多份比较和导出；“历史参考”只用于以后核价，不参与当前供应商排名。",
+        "可一次选择多个 Excel 或 CSV。重复选择同一个文件不会再次叠加。",
+        "供应商和备注可以留空。平台会优先从模板标题、文件名和工作表名中识别供应商、产品、型号与颜色。",
+        "导入后在右侧“已导入的文件”确认文件和报价对象。识别错误时可单独删除后重新上传，不必全部清空。"
+      ],
+      note: "一个文件有多个工作表时，每个有内容的工作表可以形成独立报价对象。"
+    },
+    {
+      id: "organize",
+      label: "整理物料",
+      title: "先校准品类，再对齐物料",
+      intro: "这一步决定后面的图表和导出是否清晰，通常只需要处理平台没有把握的少量物料。",
+      steps: [
+        "在“手工校准”中按报价逐份检查品类。可用下拉框修改单条物料，也可批量归入已有品类或新建品类。",
+        "在“对齐物料”中选择一个品类，把不同报价中指向同一物件的物料放到同一对比行。",
+        "可直接拖动物料；距离较远时，先点击来源物料，再滚动到目标行点击“合并到这里”。",
+        "同名重复物料会合并为一张汇总卡。点击“几项”可同时展开多组明细，也能将误合并的单条记录拆开。",
+        "对齐后平台会提取共同关键词作为对比项名称，例如不同规格的彩箱统一显示为“彩箱/彩盒”。名称不准确时可直接改名。"
+      ],
+      note: "物料匹配按内部标准名和手工结果进行；原始物料名、规格和来源始终保留，便于与供应商核对。"
+    },
+    {
+      id: "compare",
+      label: "成本与结论",
+      title: "从总价逐层看到结论和具体物料",
+      intro: "单份和多份分析都在同一模块完成；多份比较会在图表后直接整理沟通结论。",
+      steps: [
+        "“单份成本”用于检查一份报价的钱花在哪里，包括材料、人工及附加费用、最终报价和关键物料。",
+        "“多份比较”用于查看总报价、各品类成本结构和物料金额差异。可自由选择 2 至 4 份报价。",
+        "本平台以物料金额作为主要比较口径，即数量乘以单价；不会仅因一桶酒精单价高就判断整灯成本异常。",
+        "点击总价柱、品类图或饼图，可继续查看对应来源或品类下的物料金额与占比。",
+        "结论区会说明差异最大的品类、主要贡献物料和核验方向；点击结论卡片会在当前页弹出对应明细。"
+      ],
+      note: "同一供应商的不同代产品也可以比较，图表简称会优先突出型号或代际差异。"
+    },
+    {
+      id: "check",
+      label: "检查明细",
+      title: "修正数据并处理待确认内容",
+      intro: "这里用于解决真正影响结果的问题，不需要逐行重做整份 BOM。",
+      steps: [
+        "使用供应商、产品、品类和物料搜索快速缩小范围。表格可排序、调整列宽，也可从列标题菜单隐藏暂时不需要的列。",
+        "点击“修改”可编辑物料名称、标准名、规格、品类、数量、单价或成本。只知道总成本时可以使用直接成本口径。",
+        "数量、单价和金额矛盾，或材料合计、最终报价缺失时，会出现在报价检查中。",
+        "修正后，或人工确认原数据没有问题时，点击“确认无误”消除该提示；全部处理后，检查提示会自动隐藏。",
+        "材料参考价可以使用内置参考、上传价格表或填写网页/API 地址。参考价只辅助判断，不会改写供应商报价。"
+      ],
+      note: "修改会立即影响图表、结论和导出。原始字段仍可展开查看，方便追溯修改前内容。"
+    },
+    {
+      id: "output",
+      label: "导出",
+      title: "确认沟通对象并导出核价表",
+      intro: "成本结论已包含在多份比较中，这里只负责生成用于核对和沟通的 Excel。",
+      steps: [
+        "先在“多份比较”查看总报价、优先沟通品类和重点物料，并处理必要的明细问题。",
+        "优先关注金额差大且规格接近的物料；缺项较多时，应先让供应商补齐，而不是直接采用最低总价。",
+        "在导出前选择“名称以谁为准”。与 A 供应商谈价时优先使用 A 的原始叫法；已手工对齐并命名的项目优先使用对比项名称。",
+        "导出的核价表保留各供应商规格、物料金额、差价、百分比、品类合计、材料合计、人工/管理/利润和最终报价。",
+        "未匹配物料仍会保留，但不会进行误导性的差异着色；匹配项按既定金额阈值标记黄色或红色。"
+      ],
+      note: "导出前建议回到“对齐物料”快速检查重点品类，能显著减少与供应商逐项解释的时间。"
+    }
+  ];
+  const [activeSectionId, setActiveSectionId] = useState("start");
+  const activeSection =
+    guideSections.find((section) => section.id === activeSectionId) ??
+    guideSections[0];
 
   return (
-    <DetailsDialog open title="怎么使用" eyebrow="使用手册" size="wide" onClose={onClose}>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {steps.map((step) => (
-            <div key={step.title} className="rounded-[18px] bg-slate-50 p-3 ring-1 ring-slate-200">
-              <h4 className="text-xs font-semibold text-ink">{step.title}</h4>
-              <p className="mt-2 text-[11px] leading-5 text-slate-500">{step.body}</p>
+    <DetailsDialog open title="AI 成本核验使用手册" eyebrow="从导入到导出" size="wide" onClose={onClose}>
+      <div className="rounded-[14px] bg-slate-950 p-4 text-white">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold">四步完成一次成本核验</p>
+            <p className="mt-1 text-xs text-white/60">先完成主流程，再处理少量需要确认的细节。</p>
+          </div>
+          <span className="text-xs font-semibold text-sky-300">建议首次使用按顺序操作</span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {quickSteps.map((step, index) => (
+            <div key={step.title} className="rounded-[10px] bg-white/[0.07] px-3 py-2.5 ring-1 ring-white/10">
+              <div className="flex items-center gap-2">
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sky-300 text-[10px] font-bold text-slate-950">
+                  {index + 1}
+                </span>
+                <h4 className="text-xs font-semibold">{step.title}</h4>
+              </div>
+              <p className="mt-1.5 text-[10px] leading-4 text-white/55">{step.body}</p>
             </div>
           ))}
         </div>
+      </div>
 
-        <div className="mt-4 rounded-[18px] bg-white p-4 text-xs leading-5 text-slate-500 ring-1 ring-slate-200">
-          <p>
-            系统会按“供应商、产品、型号和颜色”区分每份报价。同一供应商的不同产品也能单独比较；文件备注只用于查找，不会影响物料匹配。
-          </p>
+      <div className="mt-4 grid min-w-0 gap-4 md:grid-cols-[180px_minmax(0,1fr)]">
+        <nav
+          className="flex gap-1 overflow-x-auto rounded-[12px] bg-slate-50 p-1.5 md:grid md:content-start md:overflow-visible"
+          aria-label="使用手册章节"
+        >
+          {guideSections.map((section, index) => {
+            const active = section.id === activeSection.id;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => setActiveSectionId(section.id)}
+                className={`flex min-w-[126px] items-center gap-2 rounded-[9px] px-3 py-2.5 text-left text-xs font-semibold transition md:min-w-0 ${
+                  active
+                    ? "bg-white text-slate-950 shadow-sm ring-1 ring-slate-200"
+                    : "text-slate-500 hover:bg-white/70 hover:text-slate-900"
+                }`}
+              >
+                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[9px] ${
+                  active ? "bg-slate-950 text-white" : "bg-slate-200 text-slate-500"
+                }`}>
+                  {index + 1}
+                </span>
+                {section.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <section className="min-w-0 rounded-[14px] border border-slate-200 bg-white p-4">
+          <p className="text-[10px] font-semibold text-sky-600">{activeSection.label}</p>
+          <h4 className="mt-1 text-base font-semibold text-ink">{activeSection.title}</h4>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{activeSection.intro}</p>
+
+          <ol className="mt-4 grid gap-2">
+            {activeSection.steps.map((step, index) => (
+              <li
+                key={step}
+                className="grid grid-cols-[24px_minmax(0,1fr)] items-start gap-3 rounded-[10px] bg-slate-50 px-3 py-2.5"
+              >
+                <span className="grid h-6 w-6 place-items-center rounded-[7px] bg-white text-[10px] font-bold text-slate-700 ring-1 ring-slate-200">
+                  {index + 1}
+                </span>
+                <span className="pt-0.5 text-xs leading-5 text-slate-600">{step}</span>
+              </li>
+            ))}
+          </ol>
+
+          <div className="mt-4 rounded-[10px] border border-sky-100 bg-sky-50 px-3 py-2.5">
+            <p className="text-[10px] font-semibold text-sky-700">记住这一点</p>
+            <p className="mt-1 text-xs leading-5 text-sky-950/70">{activeSection.note}</p>
+          </div>
+        </section>
+      </div>
+
+      <details className="mt-4 rounded-[12px] border border-slate-200 bg-slate-50">
+        <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-slate-700">
+          常见问题
+        </summary>
+        <div className="grid gap-3 border-t border-slate-200 p-4 text-xs leading-5 text-slate-600 md:grid-cols-2">
+          <div>
+            <p className="font-semibold text-ink">为什么同一供应商会出现多列？</p>
+            <p className="mt-1">产品、型号或颜色不同会形成独立报价列，方便比较不同代产品。</p>
+          </div>
+          <div>
+            <p className="font-semibold text-ink">为什么总价最低却不一定推荐？</p>
+            <p className="mt-1">报价可能存在缺项。平台会同时考虑物料覆盖、待检查数据和关键规格。</p>
+          </div>
+          <div>
+            <p className="font-semibold text-ink">为什么修改后图表也变了？</p>
+            <p className="mt-1">页面内计算会实时复用校准结果，不需要再次调用模型或重新上传。</p>
+          </div>
+          <div>
+            <p className="font-semibold text-ink">换电脑后还能看到数据吗？</p>
+            <p className="mt-1">当前数据保存在使用该平台的浏览器中；更换设备或清理浏览器数据后不会自动同步。</p>
+          </div>
         </div>
+      </details>
     </DetailsDialog>
   );
 }
@@ -1233,6 +1503,7 @@ function FilterPanel({
   categoryOptions,
   comparison,
   filters,
+  supplierAliases,
   onReset,
   onSelectAllSuppliers,
   onSupplierChecked,
@@ -1241,6 +1512,7 @@ function FilterPanel({
   categoryOptions: string[];
   comparison: ReturnType<typeof buildCostComparison>;
   filters: CostFilters;
+  supplierAliases: Record<string, string>;
   onReset: () => void;
   onSelectAllSuppliers: () => void;
   onSupplierChecked: (supplierName: string, checked: boolean) => void;
@@ -1269,7 +1541,9 @@ function FilterPanel({
                   />
                   <span className="motion-lift inline-flex items-center gap-2 rounded-[8px] bg-white px-3 py-2 font-semibold ring-1 ring-slate-200 peer-checked:bg-slate-950 peer-checked:text-white peer-checked:ring-slate-950">
                     <span className={`h-1.5 w-1.5 rounded-full ${checked ? "bg-white" : "bg-slate-300"}`} />
-                    {supplier}
+                    <span className="max-w-[220px] truncate" title={supplier}>
+                      {supplierAliases[supplier]?.trim() || supplier}
+                    </span>
                   </span>
                 </label>
               );

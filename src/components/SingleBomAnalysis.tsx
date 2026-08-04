@@ -178,8 +178,8 @@ export function SingleBomAnalysis({ rows, onInspectRows }: Props) {
         <MetricCard label="前 5 项占比" value={formatPercent(analysis.topFiveShare)} caption="看看成本是否过于集中" tone={analysis.topFiveShare >= 0.7 ? "attention" : "normal"} />
       </section>
 
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
-        <div className={PANEL_CLASS}>
+      <section className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
+        <div className={`${PANEL_CLASS} self-start`}>
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="type-panel-title text-ink">
@@ -201,16 +201,16 @@ export function SingleBomAnalysis({ rows, onInspectRows }: Props) {
               </button>
             )}
           </div>
-          <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(280px,0.9fr)_minmax(260px,1.1fr)] md:items-center">
-            <div className="h-[300px] min-w-0">
+          <div className="grid min-w-0 gap-4 md:grid-cols-[260px_minmax(0,1fr)] md:items-center">
+            <div className="mx-auto h-[260px] w-full max-w-[280px] min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={structureItems}
                     dataKey="amount"
                     nameKey="label"
-                    innerRadius={72}
-                    outerRadius={112}
+                    innerRadius={62}
+                    outerRadius={102}
                     paddingAngle={2}
                     cursor={selectedCategory ? "default" : "pointer"}
                     onClick={(data) => {
@@ -231,21 +231,21 @@ export function SingleBomAnalysis({ rows, onInspectRows }: Props) {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="grid max-h-[300px] gap-1 overflow-auto pr-1">
+            <div className={`grid gap-1.5 ${selectedCategory ? "max-h-[340px] overflow-auto pr-1" : "sm:grid-cols-2"}`}>
               {structureItems.map((item) => (
                 <button
                   key={item.key}
                   type="button"
                   disabled={Boolean(selectedCategory)}
                   onClick={() => setSelectedCategory(item.label)}
-                  className={`grid grid-cols-[10px_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-[12px] px-2.5 py-2 text-left transition ${
+                  className={`grid min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 rounded-[11px] px-2.5 py-2 text-left transition ${
                     selectedCategory ? "" : "cursor-pointer hover:bg-slate-50"
                   }`}
                 >
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                   <span className="truncate text-sm font-semibold text-ink" title={item.label}>{item.label}</span>
-                  <span className="text-xs tabular-nums text-slate-500">{formatPercent(item.share)}</span>
-                  <span className="min-w-[72px] text-right text-sm font-semibold tabular-nums text-ink">{formatMoney(item.amount)}</span>
+                  <span className="text-right text-sm font-semibold tabular-nums text-ink">{formatMoney(item.amount)}</span>
+                  <span className="col-start-2 text-[11px] tabular-nums text-slate-500">占比 {formatPercent(item.share)}</span>
                 </button>
               ))}
             </div>

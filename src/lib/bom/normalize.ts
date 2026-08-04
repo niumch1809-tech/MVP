@@ -46,7 +46,8 @@ export function parseMaterialDescriptor(nameValue: unknown, specValue: unknown):
 }
 
 export function normalizeBomCategory(categoryValue: unknown, materialNameValue: unknown = ""): string {
-  const text = cleanText(`${categoryValue ?? ""} ${materialNameValue ?? ""}`);
+  const rawCategory = cleanText(categoryValue);
+  const text = cleanText(`${rawCategory} ${materialNameValue ?? ""}`);
   const knowledgeCategory = findCategoryKnowledgeMatch(categoryValue, materialNameValue);
   if (knowledgeCategory) return knowledgeCategory;
 
@@ -56,17 +57,30 @@ export function normalizeBomCategory(categoryValue: unknown, materialNameValue: 
   if (/包装袋|塑胶袋|胶袋|po袋|p\.o袋|pe袋|p\.e袋|说明书|manual|instruction|bag/.test(lower)) return "包装";
   if (/结构|外壳|壳体|铝|铁|钢|不锈钢|锌合金|合金|金属|支架|固定片|固定板|安装板|底座|底盘|灯体|塑件|塑胶|杆|管|框|边框|面罩|堵头|端盖|housing|case/.test(lower)) return "结构件";
   if (/铝基板|铝基线路板|al\s*pcb|mcpcb/.test(lower)) return "光源";
-  if (/驱动|电源|控制器|电子|电子料|电阻|电容|芯片|pcb|pcba|电路|线路板|ic|mcu|resistor|capacitor|driver|power\s*supply|controller/.test(lower)) return "驱动/控制器";
+  if (/驱动|电源|控制器|遥控|接收器|电子|电子料|电阻|电容|芯片|pcb|pcba|电路|线路板|ic|mcu|resistor|capacitor|driver|power\s*supply|controller/.test(lower)) return "驱动/控制器";
   if (/线材|电线|电子线|电源线|插座|线夹|wire|cable/.test(lower)) return "线材";
   if (/光源|光电|灯珠|led|cob|铝基板/.test(lower)) return "光源";
   if (/包装|纸箱|彩盒|泡沫|泡棉|说明书|标签|外箱|carton|box|package/.test(lower)) return "包装";
   if (/五金|螺丝|螺母|垫片|扳手/.test(lower)) return "五金";
-  if (/脚垫|胶水|酒精|辅料|杂项/.test(lower)) return "杂项";
+  if (/脚垫|胶水|酒精|辅料|杂项|杂件/.test(lower)) return "杂项";
   if (/人工|工时|组装|装配|labor/.test(lower)) return "人工";
   if (/表面|喷涂|电镀|氧化|烤漆|处理|finish|coating/.test(lower)) return "表面处理";
   if (/模具|治具|夹具|tooling|fixture|mold/.test(lower)) return "模具/治具";
   if (/物流|运输|损耗|运费|loss|freight|shipping/.test(lower)) return "物流/损耗";
-  return "其他";
+  const cleanedCategory = cleanCategoryLabel(rawCategory);
+  if (cleanedCategory && !isPlaceholderCategory(cleanedCategory)) return cleanedCategory;
+  return "待归类";
+}
+
+function isPlaceholderCategory(value: string): boolean {
+  return /^(未分类|未归类|无|暂无|不详|未知|uncategorized|unknown)$/i.test(value.trim());
+}
+
+function cleanCategoryLabel(value: string): string {
+  return value
+    .replace(/(?:成本)?(?:部分|部份|类别|品类|分类)$/g, "")
+    .replace(/^[\s:：\-_/]+|[\s:：\-_/]+$/g, "")
+    .trim();
 }
 
 export function isSummaryCostItem(materialName: string, category = ""): boolean {

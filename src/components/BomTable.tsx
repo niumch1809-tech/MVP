@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-table";
 import { useCallback, useMemo, useState } from "react";
 import { CanonicalBomRow, MaterialPriceComparison } from "@/types/bom";
-import { getComparisonObjectLabel, normalizeCostCategory } from "@/lib/bom/cost-comparison";
+import { getComparisonObjectLabel, getEffectiveCostCategory } from "@/lib/bom/cost-comparison";
 import { DetailsDialog } from "@/components/DetailsDialog";
 
 type Props = {
@@ -173,11 +173,13 @@ export function BomTable({ rows, priceComparisonsByRowId = {}, onUpdateRow, onDe
         cell: ({ row }) => <TruncatedText value={getComparisonObjectLabel(row.original)} />
       },
       {
+        id: "materialName",
         accessorKey: "materialName",
         header: "物料",
         cell: ({ row }) => <TruncatedText value={row.original.materialName} strong />
       },
       {
+        id: "spec",
         accessorKey: "spec",
         header: "规格",
         cell: ({ row }) => <TruncatedText value={row.original.spec || "—"} />
@@ -185,9 +187,10 @@ export function BomTable({ rows, priceComparisonsByRowId = {}, onUpdateRow, onDe
       {
         id: "standardCategory",
         header: "品类",
-        cell: ({ row }) => normalizeCostCategory(row.original.category, row.original.materialName)
+        cell: ({ row }) => getEffectiveCostCategory(row.original)
       },
       {
+        id: "quantity",
         accessorKey: "quantity",
         header: "数量",
         cell: ({ row }) => (
@@ -195,11 +198,13 @@ export function BomTable({ rows, priceComparisonsByRowId = {}, onUpdateRow, onDe
         )
       },
       {
+        id: "unitPrice",
         accessorKey: "unitPrice",
         header: "单价",
         cell: ({ row }) => row.original.unitPrice > 0 ? formatMoney(row.original.unitPrice) : <span className="text-slate-300">—</span>
       },
       {
+        id: "amount",
         accessorKey: "amount",
         header: "成本",
         cell: ({ row }) => (
@@ -498,7 +503,7 @@ function BomRowDetails({
         <DetailValue label="报价" value={getComparisonObjectLabel(row)} />
         <DetailValue label="物料" value={row.materialName} />
         <DetailValue label="规格" value={row.spec || "未填写"} />
-        <DetailValue label="品类" value={normalizeCostCategory(row.category, row.materialName)} />
+        <DetailValue label="品类" value={getEffectiveCostCategory(row)} />
         <DetailValue label="数量" value={`${formatQuantity(row.quantity)} ${row.unit || ""}`.trim()} />
         <DetailValue label="单价" value={row.unitPrice > 0 ? formatMoney(row.unitPrice) : "未填写"} />
         <DetailValue label="成本" value={formatMoney(row.amount)} strong />

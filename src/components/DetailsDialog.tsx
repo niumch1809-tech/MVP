@@ -8,7 +8,7 @@ type Props = {
   open: boolean;
   title: string;
   eyebrow?: string;
-  size?: "default" | "wide";
+  size?: "default" | "wide" | "full";
   children: ReactNode;
   onClose: () => void;
 };
@@ -44,7 +44,7 @@ export function DetailsDialog({ open, title, eyebrow = "说明", size = "default
         aria-modal="true"
         aria-label={title}
         className={`relative max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-[16px] border border-slate-200 bg-white p-5 shadow-[0_24px_70px_rgba(31,35,40,0.16)] sm:max-h-[88dvh] ${
-          size === "wide" ? "max-w-5xl" : "max-w-2xl"
+          size === "full" ? "max-w-[min(1500px,calc(100vw-2rem))]" : size === "wide" ? "max-w-5xl" : "max-w-2xl"
         }`}
       >
         <div className="flex items-start justify-between gap-4">

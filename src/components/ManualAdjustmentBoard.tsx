@@ -369,7 +369,7 @@ function MaterialAlignmentWorkspace({
   const [draggedRowIds, setDraggedRowIds] = useState<string[]>([]);
   const [dropTargetId, setDropTargetId] = useState("");
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
-  const [expandedCellKey, setExpandedCellKey] = useState("");
+  const [expandedCellKeys, setExpandedCellKeys] = useState<string[]>([]);
   const [editingGroupId, setEditingGroupId] = useState("");
   const [groupNameDraft, setGroupNameDraft] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
@@ -514,7 +514,7 @@ function MaterialAlignmentWorkspace({
       </div>
 
       {selectedSourceRows.length > 0 && (
-        <div className="flex items-center gap-2 border-b border-sky-100 bg-sky-50/90 px-3 py-2 text-xs">
+        <div className="fixed bottom-5 left-1/2 z-[70] flex w-[min(680px,calc(100vw-32px))] -translate-x-1/2 items-center gap-2 rounded-[14px] border border-sky-200 bg-white/95 px-3 py-2.5 text-xs shadow-[0_16px_48px_rgba(15,23,42,0.18)] backdrop-blur">
           <span className="grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-sky-500 px-1.5 font-bold text-white">
             {selectedSourceRows.length}
           </span>
@@ -561,6 +561,11 @@ function MaterialAlignmentWorkspace({
             <tbody>
               {groups.map((group, groupIndex) => {
                 const isDropTarget = dropTargetId === group.id;
+                const canMergeSelectedRows =
+                  selectedSourceRows.length > 0 &&
+                  !selectedSourceRows.every((sourceRow) =>
+                    group.rows.some((row) => row.id === sourceRow.id)
+                  );
                 return (
                   <tr
                     key={group.id}
@@ -612,24 +617,22 @@ function MaterialAlignmentWorkspace({
                           </button>
                         </div>
                       )}
-                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        group.coverage > 1
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-slate-100 text-slate-500"
-                      }`}>
-                        {group.coverage > 1 ? `${group.coverage} 份已对齐` : "拖到对应行"}
-                      </span>
-                      {selectedSourceRows.length > 0 &&
-                        !selectedSourceRows.every((sourceRow) =>
-                          group.rows.some((row) => row.id === sourceRow.id)
-                        ) && (
+                      {canMergeSelectedRows ? (
                         <button
                           type="button"
                           onClick={() => alignRowsToGroup(selectedSourceIds, group)}
-                          className="mt-1.5 block w-full rounded-[8px] bg-sky-500 px-1.5 py-1 text-[9px] font-semibold text-white shadow-sm hover:bg-sky-600"
+                          className="mt-1 inline-flex rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm hover:bg-sky-600"
                         >
                           合并到这里
                         </button>
+                      ) : (
+                        <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          group.coverage > 1
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-500"
+                        }`}>
+                          {group.coverage > 1 ? `${group.coverage} 份已对齐` : "拖到对应行"}
+                        </span>
                       )}
                     </td>
                     {suppliers.map((supplier) => {
@@ -638,7 +641,7 @@ function MaterialAlignmentWorkspace({
                       );
                       const supplierRowIds = supplierRows.map((row) => row.id);
                       const cellKey = `${group.id}:${supplier}`;
-                      const isExpanded = expandedCellKey === cellKey;
+                      const isExpanded = expandedCellKeys.includes(cellKey);
                       const isDragging = supplierRowIds.some((id) =>
                         draggedRowIds.includes(id)
                       );
@@ -707,8 +710,10 @@ function MaterialAlignmentWorkspace({
                                             type="button"
                                             onClick={(event) => {
                                               event.stopPropagation();
-                                              setExpandedCellKey((current) =>
-                                                current === cellKey ? "" : cellKey
+                                              setExpandedCellKeys((current) =>
+                                                current.includes(cellKey)
+                                                  ? current.filter((key) => key !== cellKey)
+                                                  : [...current, cellKey]
                                               );
                                             }}
                                             className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 hover:bg-sky-100 hover:text-sky-700"

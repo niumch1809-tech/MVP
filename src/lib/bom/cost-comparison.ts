@@ -131,7 +131,7 @@ function matchesFilters(
   filters: CostFilters,
   context: ReturnType<typeof buildFilterContext>
 ): boolean {
-  const category = getEffectiveCategory(row);
+  const category = getEffectiveCostCategory(row);
   const materialText = `${row.materialName} ${row.normalizedName} ${row.manualName ?? ""} ${row.spec}`.toLowerCase();
   const query = context.query;
 
@@ -164,7 +164,7 @@ function buildCategoryComparison(rows: CanonicalBomRow[], suppliers: string[]): 
   const categoryMap = new Map<string, CategoryComparisonRow>();
 
   rows.forEach((row) => {
-    const category = getEffectiveCategory(row);
+    const category = getEffectiveCostCategory(row);
     const current =
       categoryMap.get(category) ??
       ({
@@ -236,7 +236,7 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
         matchKey: buildMaterialMatchKey(materialRows[0]),
         supplierMaterialNames: buildSupplierMaterialNames(rowsBySupplier, suppliers),
         supplierSpecs: buildSupplierSpecs(rowsBySupplier, suppliers),
-        category: getEffectiveCategory(materialRows[0]),
+        category: getEffectiveCostCategory(materialRows[0]),
         minAmount,
         maxAmount,
         diffAmount: maxAmount - minAmount,
@@ -408,7 +408,7 @@ function normalizeLooseMaterialText(value: string): string {
 }
 
 function buildCategories(rows: CanonicalBomRow[]): string[] {
-  const dynamic = uniqueSorted(rows.map((row) => getEffectiveCategory(row)).filter(Boolean));
+  const dynamic = uniqueSorted(rows.map((row) => getEffectiveCostCategory(row)).filter(Boolean));
   const canonicalOrder = STANDARD_CATEGORIES.slice();
   return [
     ...canonicalOrder.filter((category) => dynamic.includes(category)),
@@ -416,7 +416,7 @@ function buildCategories(rows: CanonicalBomRow[]): string[] {
   ];
 }
 
-function getEffectiveCategory(row: CanonicalBomRow): string {
+export function getEffectiveCostCategory(row: CanonicalBomRow): string {
   return row.manualCategory?.trim() || normalizeCostCategory(row.category, row.materialName);
 }
 
@@ -447,12 +447,12 @@ function buildSupplierCostTotals(rows: CanonicalBomRow[]): {
   derivedOverhead: number;
 } {
   const materialDetail = rows.filter(isComparableCostRow).reduce((sum, row) => sum + row.amount, 0);
-  const materialSummary = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCategory(row) === "材料成本合计"));
+  const materialSummary = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCostCategory(row) === "材料成本合计"));
   const explicitOverhead =
     rows
-      .filter((row) => ["人工", "人工/管理/利润"].includes(getEffectiveCategory(row)) && !isRollupCostRow(row.materialName, row.category))
+      .filter((row) => ["人工", "人工/管理/利润"].includes(getEffectiveCostCategory(row)) && !isRollupCostRow(row.materialName, row.category))
       .reduce((sum, row) => sum + row.amount, 0) + sumAdditionalOverheadColumns(rows);
-  const factoryPrice = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCategory(row) === "出厂价"));
+  const factoryPrice = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCostCategory(row) === "出厂价"));
 
   const materialTotal = chooseMaterialTotal({ materialSummary, materialDetail, factoryPrice });
   const derivedOverhead = explicitOverhead || (factoryPrice > 0 ? Math.max(factoryPrice - materialTotal, 0) : 0);
