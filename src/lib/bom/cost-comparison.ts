@@ -1,5 +1,5 @@
 import { CanonicalBomRow } from "@/types/bom";
-import { isRollupCostRow, isSummaryCostItem, normalizeBomCategory, STANDARD_MATERIAL_CATEGORIES } from "./normalize";
+import { isRollupCostRow, isSummaryCostRow, normalizeBomCategory, STANDARD_MATERIAL_CATEGORIES } from "./normalize";
 import { findMaterialKnowledgeMatch } from "./material-knowledge";
 
 export const STANDARD_CATEGORIES = STANDARD_MATERIAL_CATEGORIES;
@@ -229,7 +229,7 @@ function buildMaterialComparisons(rows: CanonicalBomRow[], suppliers: string[]):
     .sort((a, b) => b.diffAmount - a.diffAmount || b.maxAmount - a.maxAmount);
 }
 function isComparableCostRow(row: CanonicalBomRow): boolean {
-  return row.amount > 0 && !isSummaryCostItem(row.materialName, row.category) && !isRollupCostRow(row.materialName, row.category);
+  return row.amount > 0 && !isSummaryCostRow(row) && !isRollupCostRow(row.materialName, row.category);
 }
 
 function buildMaterialMatchKey(row: CanonicalBomRow): string {
@@ -463,7 +463,7 @@ function pickSingleSummaryAmount(rows: CanonicalBomRow[]): number {
 function sumAdditionalOverheadColumns(rows: CanonicalBomRow[]): number {
   const seen = new Set<string>();
   return rows.reduce((sum, row) => {
-    if (isSummaryCostItem(row.materialName, row.category) || isRollupCostRow(row.materialName, row.category)) return sum;
+    if (isSummaryCostRow(row) || isRollupCostRow(row.materialName, row.category)) return sum;
     return sum + Object.entries(row.originalFields ?? {}).reduce((fieldSum, [fieldName, rawValue]) => {
       if (!isAdditionalOverheadField(fieldName)) return fieldSum;
       const value = toLooseNumber(rawValue);

@@ -101,9 +101,30 @@ function coercePlatformCategory(category: string): string {
   return "杂项";
 }
 
-export function isSummaryCostItem(materialName: string, category = ""): boolean {
-  const normalized = normalizeBomCategory(category, materialName);
+export function isSummaryCostItem(materialName: string, category = "", ...additionalLabels: unknown[]): boolean {
+  const normalized = normalizeBomCategory([category, ...additionalLabels].filter(Boolean).join(" "), materialName);
   return ["材料成本合计", "人工", "人工/管理/利润", "出厂价"].includes(normalized);
+}
+
+type SummaryCostRowLike = {
+  materialName: string;
+  category?: string;
+  manualCategory?: string;
+  originalFields?: Record<string, unknown>;
+  raw?: Record<string, unknown>;
+};
+
+export function isSummaryCostRow(row: SummaryCostRowLike): boolean {
+  if (isSummaryCostItem(row.materialName, row.category ?? "", row.manualCategory ?? "")) return true;
+
+  const metadata = [row.originalFields, row.raw];
+  return metadata.some((fields) => {
+    if (!fields) return false;
+    const role = cleanText(fields.rowRole ?? fields["行类型"]).toLowerCase();
+    if (/summary|subtotal|汇总|小计|合计|总计/.test(role)) return true;
+    const label = cleanText(fields.summaryLabel ?? fields["汇总标签"]);
+    return Boolean(label) && isSummaryCostItem(label);
+  });
 }
 
 export function isRollupCostRow(materialName: string, category = ""): boolean {

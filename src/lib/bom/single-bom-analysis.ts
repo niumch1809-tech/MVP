@@ -1,7 +1,7 @@
 import type { CanonicalBomRow } from "@/types/bom";
 import { buildCostComparison, getComparisonObjectLabel, getEffectiveCostCategory } from "./cost-comparison";
 import { getMaterialNegotiationAdvice } from "./material-advice";
-import { isRollupCostRow, isSummaryCostItem } from "./normalize";
+import { isRollupCostRow, isSummaryCostRow } from "./normalize";
 
 export type SingleBomCategoryItem = {
   category: string;
@@ -161,7 +161,7 @@ function isMaterialDetailRow(row: CanonicalBomRow): boolean {
   return (
     row.amount > 0 &&
     !["材料成本合计", "人工", "人工/管理/利润", "出厂价"].includes(category) &&
-    !isSummaryCostItem(row.materialName, row.category) &&
+    !isSummaryCostRow(row) &&
     !isRollupCostRow(row.materialName, row.category)
   );
 }
@@ -259,7 +259,7 @@ function buildChecks(input: {
   const incompleteRows = input.objectRows.filter(
     (row) =>
       row.materialName.trim() &&
-      !isSummaryCostItem(row.materialName, row.category) &&
+      !isSummaryCostRow(row) &&
       !isRollupCostRow(row.materialName, row.category) &&
       (row.quantity <= 0 || row.unitPrice <= 0 || row.amount <= 0)
   );

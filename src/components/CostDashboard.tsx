@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 import { DetailsDialog } from "@/components/DetailsDialog";
 import { CanonicalBomRow } from "@/types/bom";
 import { CostComparison, getComparisonObjectLabel, getEffectiveCostCategory, MaterialComparisonItem } from "@/lib/bom/cost-comparison";
-import { isRollupCostRow, isSummaryCostItem } from "@/lib/bom/normalize";
+import { isRollupCostRow, isSummaryCostRow } from "@/lib/bom/normalize";
 import {
   getCostCategoryColor,
   getCostCategorySeriesColor,
@@ -1406,7 +1406,7 @@ function DiffTooltip({ active, payload, label }: { active?: boolean; payload?: D
 }
 
 function isVisualCostRow(row: CanonicalBomRow): boolean {
-  return row.amount > 0 && !isSummaryCostItem(row.materialName, row.category) && !isRollupCostRow(row.materialName, row.category);
+  return row.amount > 0 && !isSummaryCostRow(row) && !isRollupCostRow(row.materialName, row.category);
 }
 
 function compactChartRows<T extends { name: string; value: number; rows: CanonicalBomRow[] }>(rows: T[], limit: number): T[] {
