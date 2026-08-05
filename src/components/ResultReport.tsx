@@ -31,6 +31,7 @@ type DiffReportRow = {
   maxValue: number;
   diffAmount: number;
   diffRate: number;
+  maxCostShare: number;
   rows: CanonicalBomRow[];
 };
 
@@ -46,16 +47,16 @@ export function ResultReport({ comparison, selectedCategory = "", supplierAliase
   const topCategory = categoryRows[0];
   const topMaterial = materialRows[0];
   const isCategoryScope = Boolean(selectedCategory);
+  const significantCategoryRows = categoryRows.filter(isCategoryWorthReviewing).slice(0, 9);
+  const reviewMaterialRows = materialRows.filter((row) => isMaterialWorthReviewing(row, totalDiff));
   const headline = buildHeadline(selectedCategory, totalDiff, topCategory, topMaterial);
   const summary = buildSummary(cheapest, highest, totalDiff, topCategory, topMaterial);
+  const primaryAction = buildPrimaryAction(significantCategoryRows[0], reviewMaterialRows[0]);
   const comparisonNote = buildComparisonNote(comparison);
-  const significantCategoryRows = categoryRows.filter((row) => row.diffAmount >= 15).slice(0, 9);
   const visibleCategoryRows = isCategoryScope
     ? categoryRows.slice(0, 1)
-    : significantCategoryRows.length > 0
-      ? significantCategoryRows
-      : categoryRows.slice(0, 6);
-  const visibleMaterialRows = materialRows.slice(0, isCategoryScope ? 3 : 6);
+    : significantCategoryRows;
+  const visibleMaterialRows = reviewMaterialRows.slice(0, isCategoryScope ? 3 : 6);
 
   if (comparison.filteredRows.length === 0) {
     return (
@@ -69,27 +70,45 @@ export function ResultReport({ comparison, selectedCategory = "", supplierAliase
   return (
     <section className="reveal-in grid min-w-0 max-w-full gap-4 overflow-hidden">
       <section className="decision-hero decision-hero-neutral">
-        <div className="min-w-0">
-          <p className="type-micro text-slate-500">本次结论</p>
-          <h3 className="mt-2 text-[clamp(1.5rem,2vw,2.1rem)] font-semibold leading-tight text-ink">{headline}</h3>
-          <p className="type-body mt-3 max-w-5xl text-slate-600">{summary}</p>
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.38fr)] xl:items-center">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-sky-700">核心判断</p>
+            <h3 className="mt-2 max-w-5xl text-[clamp(1.65rem,2.3vw,2.5rem)] font-bold leading-[1.22] text-ink">{headline}</h3>
+            <p className="mt-3 max-w-5xl text-sm font-medium leading-7 text-slate-600">{summary}</p>
+          </div>
+          <div className="rounded-[12px] border border-sky-200 bg-white px-4 py-4 shadow-sm">
+            <p className="text-[11px] font-bold text-sky-700">建议先做</p>
+            <p className="mt-1.5 text-base font-bold leading-6 text-ink">{primaryAction.title}</p>
+            <p className="mt-1.5 text-xs leading-5 text-slate-500">{primaryAction.detail}</p>
+          </div>
         </div>
       </section>
 
-      <CategoryDriversPanel
-        rows={visibleCategoryRows}
-        materialRows={materialRows}
-        supplierAliases={supplierAliases}
-        selectedCategory={selectedCategory}
-        onInspectRows={onInspectRows}
-      />
+      {visibleCategoryRows.length > 0 && (
+        <CategoryDriversPanel
+          rows={visibleCategoryRows}
+          materialRows={materialRows}
+          supplierAliases={supplierAliases}
+          selectedCategory={selectedCategory}
+          onInspectRows={onInspectRows}
+        />
+      )}
 
-      <MaterialAdvicePanel
-        rows={visibleMaterialRows}
-        supplierAliases={supplierAliases}
-        totalDiff={totalDiff}
-        onInspectRows={onInspectRows}
-      />
+      {visibleMaterialRows.length > 0 && (
+        <MaterialAdvicePanel
+          rows={visibleMaterialRows}
+          supplierAliases={supplierAliases}
+          totalDiff={totalDiff}
+          onInspectRows={onInspectRows}
+        />
+      )}
+
+      {visibleCategoryRows.length === 0 && visibleMaterialRows.length === 0 && (
+        <section className="rounded-[14px] border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+          <h3 className="text-sm font-bold text-emerald-900">当前没有需要优先深挖的成本项</h3>
+          <p className="mt-1 text-xs leading-5 text-emerald-800/80">差价仍完整保留在图表和明细中，可以按实际需要继续查看，无需逐项展开专业核验。</p>
+        </section>
+      )}
 
       <p className="rounded-[12px] border border-slate-200 bg-white/70 px-4 py-3 text-xs leading-5 text-slate-500">
         {comparisonNote} 未同时出现的物料会保留为待核对项，不要求两份 BOM 达到 100% 匹配，也不会因此遮住主要成本差异。
@@ -119,7 +138,14 @@ function CategoryDriversPanel({
 
   if (selectedCategory) {
     const category = rows[0];
-    const contributors = materialRows.filter((material) => material.category === selectedCategory).slice(0, 8);
+    const contributors = materialRows
+      .filter((material) => material.category === selectedCategory)
+      .filter((material) => (
+        material.diffAmount >= Math.max(2, (category?.diffAmount ?? 0) * 0.15) ||
+        material.maxCostShare >= 0.1 ||
+        (material.diffRate >= 0.5 && material.diffAmount >= 2)
+      ))
+      .slice(0, 8);
     return (
       <section className={PANEL_CLASS}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -176,7 +202,7 @@ function CategoryDriversPanel({
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="type-panel-title text-ink">{selectedCategory ? `${selectedCategory}差异来自哪里` : "哪些品类拉开了总价"}</h3>
-          <p className="type-caption mt-1 text-slate-500">展示差价至少 15 元的品类，最多 9 项；再看品类内贡献最大的物料。</p>
+          <p className="type-caption mt-1 text-slate-500">只提示差价明显或占报价较高的品类；普通差异仍可在图表和明细中查看。</p>
         </div>
         <div className="flex items-center gap-2">
           {commonPairLabel && <span className="hidden text-xs text-slate-500 sm:inline">{commonPairLabel}</span>}
@@ -191,16 +217,22 @@ function CategoryDriversPanel({
               key={row.name}
               type="button"
               onClick={() => onInspectRows(row.rows, `品类差异来源：${row.name}`)}
-              className="rounded-[14px] border border-slate-200 bg-white p-3.5 text-left transition hover:border-sky-300 hover:bg-sky-50/30 hover:shadow-sm"
+              className={`rounded-[14px] border p-3.5 text-left transition hover:border-sky-300 hover:shadow-sm ${
+                index === 0
+                  ? "border-rose-200 bg-rose-50/35"
+                  : "border-slate-200 bg-white hover:bg-sky-50/30"
+              }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <span className="text-[11px] font-semibold text-slate-400">{String(index + 1).padStart(2, "0")}</span>
-                  <h4 className="mt-1 truncate text-base font-semibold text-ink">{row.name}</h4>
+                  <span className={`text-[11px] font-bold ${index === 0 ? "text-rose-600" : "text-slate-400"}`}>
+                    {index === 0 ? "首要差异" : String(index + 1).padStart(2, "0")}
+                  </span>
+                  <h4 className={`mt-1 truncate font-bold text-ink ${index === 0 ? "text-lg" : "text-base"}`}>{row.name}</h4>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="text-lg font-bold text-ink">{formatMoney(row.diffAmount)}</div>
-                  <div className="text-xs text-slate-500">{formatPercent(row.diffRate)}</div>
+                  <div className={`font-bold ${index === 0 ? "text-xl text-rose-600" : "text-lg text-ink"}`}>{formatMoney(row.diffAmount)}</div>
+                  <div className={`text-xs font-semibold ${index === 0 ? "text-rose-500" : "text-slate-500"}`}>{formatPercent(row.diffRate)}</div>
                 </div>
               </div>
               {!hasCommonPair && (
@@ -217,11 +249,16 @@ function CategoryDriversPanel({
                     </span>
                   )) : <span className="text-xs text-slate-400">暂无已对齐的贡献物料</span>}
                 </div>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  {row.diffAmount >= 15
+                    ? `金额差达到 ${formatMoney(row.diffAmount)}，建议继续看贡献最大的物料。`
+                    : `该品类最高占单份报价 ${formatPercent(row.maxCostShare)}，即使差价不大也值得留意。`}
+                </p>
               </div>
             </button>
           );
         })}
-        {rows.length === 0 && <p className="rounded-[12px] bg-slate-50 p-4 text-sm text-slate-500">当前范围没有可比较的品类差异。</p>}
+        {rows.length === 0 && <p className="rounded-[12px] bg-slate-50 p-4 text-sm text-slate-500">当前没有达到进一步拆解条件的品类。全部差异仍保留在上方图表和明细中。</p>}
       </div>
     </section>
   );
@@ -238,28 +275,33 @@ function MaterialAdvicePanel({ rows, supplierAliases, totalDiff, onInspectRows }
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="type-panel-title text-ink">需要重点核对的物料</h3>
-          <p className="type-caption mt-1 text-slate-500">说明差异可能来自哪里，以及怎样向供应商问清楚。</p>
+          <p className="type-caption mt-1 text-slate-500">只有金额差、总差价贡献或成本占比较高时，才建议继续拆解。</p>
         </div>
         <span className="status-badge">{rows.length} 项</span>
       </div>
       <div className="mt-3 grid gap-3 xl:grid-cols-2">
         {rows.map((row, index) => {
           const advice = getMaterialNegotiationAdvice(row.displayName, row.category);
-          const important = row.diffRate >= 0.5 || row.diffAmount >= Math.max(10, totalDiff * 0.1);
+          const important = row.diffAmount >= Math.max(10, totalDiff * 0.1) || row.maxCostShare >= 0.15;
           const totalContribution = totalDiff > 0 ? row.diffAmount / totalDiff : 0;
+          const attentionReason = buildMaterialAttentionReason(row, totalDiff);
           return (
             <button
               key={`${row.category}-${row.name}`}
               type="button"
               onClick={() => onInspectRows(row.rows, `重点物料：${row.name}`)}
-              className="group grid min-w-0 gap-3 rounded-[14px] border border-slate-200 bg-white p-4 text-left transition hover:border-sky-300 hover:bg-sky-50/30 hover:shadow-sm"
+              className={`group grid min-w-0 gap-3 rounded-[14px] border p-4 text-left transition hover:border-sky-300 hover:shadow-sm ${
+                index === 0
+                  ? "xl:col-span-2 border-rose-200 bg-rose-50/30"
+                  : "border-slate-200 bg-white hover:bg-sky-50/30"
+              }`}
             >
               <span className="flex min-w-0 items-start gap-3">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] bg-slate-50 text-xs font-semibold text-ink ring-1 ring-slate-200">{index + 1}</span>
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-ink" title={row.name}>{row.displayName}</span>
-                    {important && <span className="shrink-0 rounded-[6px] bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">重点</span>}
+                    <span className={`truncate font-bold text-ink ${index === 0 ? "text-base" : "text-sm"}`} title={row.name}>{row.displayName}</span>
+                    {important && <span className="shrink-0 rounded-[6px] bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700">{index === 0 ? "首要核对" : "重点"}</span>}
                   </span>
                   <span className="mt-1 block text-xs text-slate-500">{row.category} · {displaySupplier(row.maxSupplier, supplierAliases)} 较高</span>
                 </span>
@@ -282,14 +324,13 @@ function MaterialAdvicePanel({ rows, supplierAliases, totalDiff, onInspectRows }
 
               <span className="grid gap-2 text-xs leading-5 text-slate-600">
                 <span className="rounded-[9px] bg-slate-50/80 px-3 py-2"><strong className="text-slate-800">报价口径：</strong>{displaySupplier(row.minSupplier, supplierAliases)} {formatMoney(row.minValue)}，{displaySupplier(row.maxSupplier, supplierAliases)} {formatMoney(row.maxValue)}</span>
-                <span><strong className="text-slate-800">可能原因：</strong>{advice.factors}</span>
-                <span><strong className="text-slate-800">建议核对：</strong>{advice.verify}</span>
-                <span><strong className="text-slate-800">沟通方向：</strong>{advice.direction}</span>
+                <span><strong className="text-slate-800">为什么关注：</strong>{attentionReason}</span>
+                <span><strong className="text-slate-800">进一步核验建议：</strong>{advice.verify}；{advice.direction}</span>
               </span>
             </button>
           );
         })}
-        {rows.length === 0 && <p className="rounded-[12px] bg-slate-50 p-4 text-sm text-slate-500">当前范围没有明显的已对齐物料差异。</p>}
+        {rows.length === 0 && <p className="rounded-[12px] bg-slate-50 p-4 text-sm text-slate-500">当前没有达到进一步核验条件的物料。普通差异仍保留在明细和对比图中。</p>}
       </div>
     </section>
   );
@@ -308,25 +349,53 @@ function buildSupplierReportRows(comparison: CostComparison, aliases: Record<str
 }
 
 function buildCategoryDiffRows(comparison: CostComparison): DiffReportRow[] {
+  const supplierTotals = new Map(comparison.supplierTotals.map((item) => [item.supplierName, item.totalAmount]));
   return comparison.categoryComparison.map((row) => {
     const points = comparison.activeSuppliers.map((supplier) => ({ supplier, value: Number(row[supplier] ?? 0) })).filter((point) => point.value > 0).sort((a, b) => a.value - b.value);
     if (points.length < 2) return null;
     const min = points[0];
     const max = points[points.length - 1];
-    return { name: row.category, displayName: row.category, minSupplier: min.supplier, maxSupplier: max.supplier, minValue: min.value, maxValue: max.value, diffAmount: max.value - min.value, diffRate: min.value > 0 ? (max.value - min.value) / min.value : 0, rows: row.rows };
+    const maxSupplierTotal = supplierTotals.get(max.supplier) ?? 0;
+    return { name: row.category, displayName: row.category, minSupplier: min.supplier, maxSupplier: max.supplier, minValue: min.value, maxValue: max.value, diffAmount: max.value - min.value, diffRate: min.value > 0 ? (max.value - min.value) / min.value : 0, maxCostShare: maxSupplierTotal > 0 ? max.value / maxSupplierTotal : 0, rows: row.rows };
   }).filter((row): row is DiffReportRow => row !== null && row.diffAmount > 0).sort((a, b) => b.diffAmount - a.diffAmount);
 }
 
 function buildMaterialDiffRows(comparison: CostComparison): DiffReportRow[] {
-  return comparison.materialComparisons.map(buildMaterialDiffRow).filter((row): row is DiffReportRow => row !== null && row.diffAmount > 0).sort((a, b) => b.diffAmount - a.diffAmount);
+  const supplierTotals = new Map(comparison.supplierTotals.map((item) => [item.supplierName, item.totalAmount]));
+  return comparison.materialComparisons.map((item) => buildMaterialDiffRow(item, supplierTotals)).filter((row): row is DiffReportRow => row !== null && row.diffAmount > 0).sort((a, b) => b.diffAmount - a.diffAmount);
 }
 
-function buildMaterialDiffRow(item: MaterialComparisonItem): DiffReportRow | null {
+function buildMaterialDiffRow(item: MaterialComparisonItem, supplierTotals: Map<string, number>): DiffReportRow | null {
   const points = item.suppliers.filter((point) => point.amount > 0).sort((a, b) => a.amount - b.amount);
   if (points.length < 2) return null;
   const min = points[0];
   const max = points[points.length - 1];
-  return { name: item.materialName, displayName: shortenMaterialName(item.materialName, item.rows), category: item.category, minSupplier: min.supplierName, maxSupplier: max.supplierName, minValue: min.amount, maxValue: max.amount, diffAmount: max.amount - min.amount, diffRate: min.amount > 0 ? (max.amount - min.amount) / min.amount : 0, rows: item.rows };
+  const maxSupplierTotal = supplierTotals.get(max.supplierName) ?? 0;
+  return { name: item.materialName, displayName: shortenMaterialName(item.materialName, item.rows), category: item.category, minSupplier: min.supplierName, maxSupplier: max.supplierName, minValue: min.amount, maxValue: max.amount, diffAmount: max.amount - min.amount, diffRate: min.amount > 0 ? (max.amount - min.amount) / min.amount : 0, maxCostShare: maxSupplierTotal > 0 ? max.amount / maxSupplierTotal : 0, rows: item.rows };
+}
+
+function isCategoryWorthReviewing(row: DiffReportRow) {
+  return row.diffAmount >= 15 || (row.maxCostShare >= 0.15 && row.diffAmount >= 2);
+}
+
+function isMaterialWorthReviewing(row: DiffReportRow, totalDiff: number) {
+  const contribution = totalDiff > 0 ? row.diffAmount / totalDiff : 0;
+  return (
+    row.diffAmount >= Math.max(5, totalDiff * 0.05) ||
+    contribution >= 0.15 ||
+    row.maxCostShare >= 0.1 ||
+    (row.diffRate >= 0.5 && row.diffAmount >= 2)
+  );
+}
+
+function buildMaterialAttentionReason(row: DiffReportRow, totalDiff: number) {
+  const reasons: string[] = [];
+  const contribution = totalDiff > 0 ? row.diffAmount / totalDiff : 0;
+  if (row.diffAmount >= Math.max(5, totalDiff * 0.05)) reasons.push(`金额差 ${formatMoney(row.diffAmount)}`);
+  if (contribution >= 0.15) reasons.push(`约占总价差 ${formatPercent(contribution)}`);
+  if (row.maxCostShare >= 0.1) reasons.push(`最高占单份报价 ${formatPercent(row.maxCostShare)}`);
+  if (row.diffRate >= 0.5 && row.diffAmount >= 2) reasons.push(`报价差异达到 ${formatPercent(row.diffRate)}`);
+  return `${reasons.slice(0, 2).join("，")}，已达到进一步核验条件。`;
 }
 
 function buildHeadline(selectedCategory: string, totalDiff: number, topCategory?: DiffReportRow, topMaterial?: DiffReportRow) {
@@ -345,6 +414,27 @@ function buildSummary(cheapest?: SupplierReportRow, highest?: SupplierReportRow,
   if (topCategory) parts.push(`${topCategory.name}品类相差 ${formatMoney(topCategory.diffAmount)}`);
   if (topMaterial) parts.push(`${topMaterial.displayName}是当前贡献较大的物料，差 ${formatMoney(topMaterial.diffAmount)}`);
   return `${parts.join("；")}。建议先确认规格和用量口径，再围绕高差异项逐项沟通。`;
+}
+
+function buildPrimaryAction(topCategory?: DiffReportRow, topMaterial?: DiffReportRow) {
+  if (topMaterial) {
+    const advice = getMaterialNegotiationAdvice(topMaterial.displayName, topMaterial.category);
+    return {
+      title: `先核对「${topMaterial.displayName}」`,
+      detail: `${topMaterial.category || "物料"}差价 ${formatMoney(topMaterial.diffAmount)}。${advice.verify}。`
+    };
+  }
+  if (topCategory) {
+    const advice = getMaterialNegotiationAdvice(topCategory.name, topCategory.name);
+    return {
+      title: `先拆解「${topCategory.name}」`,
+      detail: `品类差价 ${formatMoney(topCategory.diffAmount)}。${advice.direction}。`
+    };
+  }
+  return {
+    title: "先确认报价口径",
+    detail: "检查规格、单位、数量和费用包含范围，再判断价格差异。"
+  };
 }
 
 function buildComparisonNote(comparison: CostComparison) {

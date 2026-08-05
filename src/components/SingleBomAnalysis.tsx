@@ -373,33 +373,78 @@ function QuoteInsights({
   insights: SingleBomInsight[];
   compact?: boolean;
 }) {
+  const rankedInsights = [...insights].sort(
+    (left, right) => insightPriority(right) - insightPriority(left)
+  );
+  const leadInsight = rankedInsights[0];
+  const supportingInsights = rankedInsights.slice(1);
+
+  if (!leadInsight) return null;
+
   return (
     <section className={PANEL_CLASS}>
-      <div className="mb-3">
-        <h3 className="type-panel-title text-ink">这份报价值得关注什么</h3>
-        <p className="type-caption text-slate-500">从成本占比和合计关系中整理出的简要提示。</p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold text-sky-700">成本结论</p>
+          <h3 className={`${compact ? "mt-1 text-lg" : "mt-1 text-xl"} font-bold text-ink`}>这份报价先看什么</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">先处理最重要的一项，再按顺序查看支撑依据。</p>
+        </div>
+        <span className="status-badge">{rankedInsights.length} 条结论</span>
       </div>
-      <div className={`grid gap-3 ${compact ? "" : "md:grid-cols-2 xl:grid-cols-3"}`}>
-        {insights.map((insight) => (
+
+      <article className={`rounded-[13px] border p-4 ${insightSurface(leadInsight.tone)}`}>
+        <div className="flex items-center gap-2">
+          <span className={`h-2.5 w-2.5 rounded-full ${insightDot(leadInsight.tone)}`} />
+          <span className="text-[11px] font-bold uppercase tracking-normal text-slate-500">优先关注</span>
+        </div>
+        <h4 className={`${compact ? "mt-2 text-lg" : "mt-2 text-xl"} font-bold leading-7 text-ink`}>{leadInsight.title}</h4>
+        <p className={`${compact ? "mt-1.5 text-xs leading-5" : "mt-2 text-sm leading-6"} font-medium text-slate-700`}>
+          {leadInsight.body}
+        </p>
+      </article>
+
+      <div className={`mt-3 grid gap-2.5 ${compact ? "" : "md:grid-cols-2"}`}>
+        {supportingInsights.map((insight, index) => (
           <article
             key={insight.id}
-            className={`insight-card border-l-4 ${compact ? "p-3" : "p-4"} ${
-              insight.tone === "risk"
-                ? "border-l-red-500"
-                : insight.tone === "attention"
-                  ? "border-l-amber-400"
-                  : "border-l-sky-400"
-            }`}
+            className={`grid grid-cols-[28px_minmax(0,1fr)] gap-3 rounded-[11px] border border-slate-200 bg-white ${compact ? "p-2.5" : "p-3.5"}`}
           >
-            <h4 className="text-sm font-bold text-ink">{insight.title}</h4>
-            <p className={`${compact ? "mt-1 text-xs leading-5" : "type-body mt-1.5"} text-slate-600`}>
-              {insight.body}
-            </p>
+            <span className={`grid h-7 w-7 place-items-center rounded-[8px] text-[11px] font-bold ${
+              insight.tone === "risk"
+                ? "bg-red-50 text-red-700"
+                : insight.tone === "attention"
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-sky-50 text-sky-700"
+            }`}>{index + 2}</span>
+            <div className="min-w-0">
+              <h4 className="text-sm font-bold text-ink">{insight.title}</h4>
+              <p className={`${compact ? "mt-0.5 text-[11px] leading-[1.55]" : "mt-1 text-xs leading-5"} text-slate-500`}>
+                {insight.body}
+              </p>
+            </div>
           </article>
         ))}
       </div>
     </section>
   );
+}
+
+function insightPriority(insight: SingleBomInsight) {
+  const toneScore = insight.tone === "risk" ? 30 : insight.tone === "attention" ? 20 : 10;
+  const subjectScore = insight.id.startsWith("material-focus") ? 3 : insight.id === "category-focus" ? 2 : 0;
+  return toneScore + subjectScore;
+}
+
+function insightSurface(tone: SingleBomInsight["tone"]) {
+  if (tone === "risk") return "border-red-200 bg-red-50/70";
+  if (tone === "attention") return "border-amber-200 bg-amber-50/70";
+  return "border-sky-200 bg-sky-50/70";
+}
+
+function insightDot(tone: SingleBomInsight["tone"]) {
+  if (tone === "risk") return "bg-red-500";
+  if (tone === "attention") return "bg-amber-500";
+  return "bg-sky-500";
 }
 
 function MetricCard({

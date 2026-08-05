@@ -1,5 +1,6 @@
 import type { CanonicalBomRow } from "@/types/bom";
 import { buildCostComparison, getComparisonObjectLabel, getEffectiveCostCategory } from "./cost-comparison";
+import { getMaterialNegotiationAdvice } from "./material-advice";
 import { isRollupCostRow, isSummaryCostItem } from "./normalize";
 
 export type SingleBomCategoryItem = {
@@ -354,35 +355,12 @@ function buildInsights(input: {
   issueCount: number;
 }): SingleBomInsight[] {
   const largestCategory = input.categories[0];
-  const largestMaterial = input.materials[0];
   const materialGapRate =
     input.declaredMaterialTotal > 0
       ? Math.abs(input.declaredMaterialTotal - input.materialDetailTotal) / input.declaredMaterialTotal
       : 0;
 
   const insights: SingleBomInsight[] = [];
-  if (largestCategory) {
-    insights.push({
-      id: "category-focus",
-      title: "主要成本品类",
-      body: `${largestCategory.category}金额 ${formatMoney(largestCategory.amount)}，占材料明细 ${formatPercent(largestCategory.share)}，是当前优先核价品类。`,
-      tone: largestCategory.share >= 0.5 ? "attention" : "neutral"
-    });
-  }
-  if (largestMaterial) {
-    insights.push({
-      id: "material-focus",
-      title: "关键成本物料",
-      body: `${largestMaterial.materialName}金额 ${formatMoney(largestMaterial.amount)}，占材料明细 ${formatPercent(largestMaterial.share)}；前 5 项合计占 ${formatPercent(input.topFiveShare)}。`,
-      tone: input.topFiveShare >= 0.7 ? "attention" : "neutral"
-    });
-  }
-  insights.push({
-    id: "cost-boundary",
-    title: "报价口径",
-    body: `核验总成本 ${formatMoney(input.auditTotal)}，其中材料成本 ${formatMoney(input.materialTotal)}，人工/管理/利润及附加费用 ${formatMoney(input.overheadTotal)}${input.overheadWasDerived ? "（反推）" : ""}。`,
-    tone: input.overheadWasDerived ? "attention" : "neutral"
-  });
   if (input.declaredMaterialTotal <= 0 || materialGapRate > 0.01) {
     insights.push({
       id: "reconciliation",
@@ -400,6 +378,56 @@ function buildInsights(input: {
       title: "先处理数据异常",
       body: `当前识别到 ${input.issueCount} 个行级问题。建议先修正数量、单价和金额矛盾，再使用分析结果进行商务沟通。`,
       tone: "risk"
+    });
+  }
+  if (largestCategory && largestCategory.share >= 0.15) {
+    const categoryLead = input.materials.find((material) => material.category === largestCategory.category);
+    const categoryAdvice = getMaterialNegotiationAdvice(
+      categoryLead?.materialName ?? largestCategory.category,
+      largestCategory.category
+    );
+    insights.push({
+      id: "category-focus",
+      title: `${largestCategory.category}是主要成本品类`,
+      body: `金额 ${formatMoney(largestCategory.amount)}，占材料明细 ${formatPercent(largestCategory.share)}。如需继续降本，建议先从该品类展开；${categoryAdvice.singleAction}。`,
+      tone: largestCategory.share >= 0.35 ? "attention" : "neutral"
+    });
+  }
+  input.materials
+    .filter((material) => material.share >= 0.1)
+    .slice(0, 3)
+    .forEach((material, index) => {
+      const advice = getMaterialNegotiationAdvice(material.materialName, material.category);
+      insights.push({
+        id: `material-focus-${index + 1}`,
+        title: `${material.materialName}值得进一步核验`,
+        body: `金额 ${formatMoney(material.amount)}，占材料明细 ${formatPercent(material.share)}。它对整份报价影响较大，建议：${advice.singleAction}。`,
+        tone: material.share >= 0.2 ? "attention" : "neutral"
+      });
+    });
+  if (input.topFiveShare >= 0.7) {
+    insights.push({
+      id: "cost-concentration",
+      title: "成本集中在少数物料",
+      body: `前 5 项物料合计占材料成本 ${formatPercent(input.topFiveShare)}。核价时优先处理这些高金额项目，比逐项检查全部小额物料更有效。`,
+      tone: "attention"
+    });
+  }
+  const overheadShare = input.auditTotal > 0 ? input.overheadTotal / input.auditTotal : 0;
+  if (input.overheadWasDerived || overheadShare >= 0.15) {
+    insights.push({
+      id: "cost-boundary",
+      title: input.overheadWasDerived ? "其他费用来自系统反推" : "其他费用占比较高",
+      body: `人工、管理、利润及附加费用为 ${formatMoney(input.overheadTotal)}，占核验总成本 ${formatPercent(overheadShare)}${input.overheadWasDerived ? "，表内没有单独填写该金额" : ""}。建议确认费用包含范围和计算基数。`,
+      tone: "attention"
+    });
+  }
+  if (insights.length === 0) {
+    insights.push({
+      id: "no-major-focus",
+      title: "暂未发现需要优先深挖的成本项",
+      body: "当前成本分布较均衡，也没有明显的数据问题。可以先查看金额明细，待发现高占比或异常项目后再进一步核验。",
+      tone: "neutral"
     });
   }
   return insights;

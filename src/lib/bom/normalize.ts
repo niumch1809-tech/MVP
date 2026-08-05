@@ -1,5 +1,24 @@
 import { findCategoryKnowledgeMatch, findMaterialKnowledgeMatch } from "./material-knowledge";
 
+export const STANDARD_MATERIAL_CATEGORIES = [
+  "结构件",
+  "光源",
+  "包装",
+  "驱动/控制器",
+  "五金",
+  "线材",
+  "叶片组",
+  "电机",
+  "杂项"
+] as const;
+
+const SUMMARY_COST_CATEGORIES = new Set([
+  "人工",
+  "人工/管理/利润",
+  "材料成本合计",
+  "出厂价"
+]);
+
 export type ParsedMaterialDescriptor = {
   materialName: string;
   spec: string;
@@ -49,38 +68,37 @@ export function normalizeBomCategory(categoryValue: unknown, materialNameValue: 
   const rawCategory = cleanText(categoryValue);
   const text = cleanText(`${rawCategory} ${materialNameValue ?? ""}`);
   const knowledgeCategory = findCategoryKnowledgeMatch(categoryValue, materialNameValue);
-  if (knowledgeCategory) return knowledgeCategory;
+  if (knowledgeCategory) return coercePlatformCategory(knowledgeCategory);
 
   const lower = text.toLowerCase();
+  if (/材料成本合计|物料成本合计|原材料成本|材料合计|物料合计|bom合计|总材料/.test(lower)) return "材料成本合计";
+  if (/出厂价|工厂价|最终成本|最终报价|核验总成本|含税出厂/.test(lower)) return "出厂价";
+  if (/人工.*管理|人工.*利润|管理费|管理成本|利润|毛利/.test(lower)) return "人工/管理/利润";
+  if (/人工|工时|组装|装配|labor/.test(lower)) return "人工";
+  if (/叶片|扇叶|风叶|blade/.test(lower)) return "叶片组";
+  if (/电机|马达|motor/.test(lower)) return "电机";
   if (/吊钟|吊盅|吊杆|吊管|灯盘|吸顶盘|安装盘|canopy|downrod|ceiling\s*pan/.test(lower)) return "结构件";
   if (/端子排|端子座|接线端子|电线|线组|端子线|连接线|terminal|wire|cable/.test(lower)) return "线材";
   if (/包装袋|塑胶袋|胶袋|po袋|p\.o袋|pe袋|p\.e袋|说明书|manual|instruction|bag/.test(lower)) return "包装";
-  if (/结构|外壳|壳体|铝|铁|钢|不锈钢|锌合金|合金|金属|支架|固定片|固定板|安装板|底座|底盘|灯体|塑件|塑胶|杆|管|框|边框|面罩|堵头|端盖|housing|case/.test(lower)) return "结构件";
   if (/铝基板|铝基线路板|al\s*pcb|mcpcb/.test(lower)) return "光源";
   if (/驱动|电源|控制器|遥控|接收器|电子|电子料|电阻|电容|芯片|pcb|pcba|电路|线路板|ic|mcu|resistor|capacitor|driver|power\s*supply|controller/.test(lower)) return "驱动/控制器";
   if (/线材|电线|电子线|电源线|插座|线夹|wire|cable/.test(lower)) return "线材";
   if (/光源|光电|灯珠|led|cob|铝基板/.test(lower)) return "光源";
   if (/包装|纸箱|彩盒|泡沫|泡棉|说明书|标签|外箱|carton|box|package/.test(lower)) return "包装";
-  if (/五金|螺丝|螺母|垫片|扳手/.test(lower)) return "五金";
+  if (/五金|五金包|配件包|螺丝|螺母|垫片|扳手/.test(lower)) return "五金";
+  if (/结构|外壳|壳体|铝|铁|钢|不锈钢|锌合金|合金|金属|玻璃|亚克力|支架|固定片|固定板|安装板|底座|底盘|灯体|塑件|塑胶|杆|管|框|边框|面罩|堵头|端盖|housing|case/.test(lower)) return "结构件";
   if (/脚垫|胶水|酒精|辅料|杂项|杂件/.test(lower)) return "杂项";
-  if (/人工|工时|组装|装配|labor/.test(lower)) return "人工";
-  if (/表面|喷涂|电镀|氧化|烤漆|处理|finish|coating/.test(lower)) return "表面处理";
-  if (/模具|治具|夹具|tooling|fixture|mold/.test(lower)) return "模具/治具";
-  if (/物流|运输|损耗|运费|loss|freight|shipping/.test(lower)) return "物流/损耗";
-  const cleanedCategory = cleanCategoryLabel(rawCategory);
-  if (cleanedCategory && !isPlaceholderCategory(cleanedCategory)) return cleanedCategory;
-  return "待归类";
+  if (/表面|喷涂|电镀|氧化|烤漆|处理|finish|coating/.test(lower)) return "结构件";
+  if (/模具|治具|夹具|tooling|fixture|mold|物流|运输|损耗|运费|loss|freight|shipping/.test(lower)) return "杂项";
+  return "杂项";
 }
 
-function isPlaceholderCategory(value: string): boolean {
-  return /^(未分类|未归类|无|暂无|不详|未知|uncategorized|unknown)$/i.test(value.trim());
-}
-
-function cleanCategoryLabel(value: string): string {
-  return value
-    .replace(/(?:成本)?(?:部分|部份|类别|品类|分类)$/g, "")
-    .replace(/^[\s:：\-_/]+|[\s:：\-_/]+$/g, "")
-    .trim();
+function coercePlatformCategory(category: string): string {
+  if (SUMMARY_COST_CATEGORIES.has(category)) return category;
+  if (STANDARD_MATERIAL_CATEGORIES.includes(category as (typeof STANDARD_MATERIAL_CATEGORIES)[number])) return category;
+  if (category === "五金包") return "五金";
+  if (category === "表面处理") return "结构件";
+  return "杂项";
 }
 
 export function isSummaryCostItem(materialName: string, category = ""): boolean {

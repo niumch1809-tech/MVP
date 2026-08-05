@@ -1,27 +1,8 @@
 import { CanonicalBomRow } from "@/types/bom";
-import { isRollupCostRow, isSummaryCostItem, normalizeBomCategory } from "./normalize";
+import { isRollupCostRow, isSummaryCostItem, normalizeBomCategory, STANDARD_MATERIAL_CATEGORIES } from "./normalize";
 import { findMaterialKnowledgeMatch } from "./material-knowledge";
 
-export const STANDARD_CATEGORIES = [
-  "结构件",
-  "光源",
-  "驱动/控制器",
-  "线材",
-  "包装",
-  "五金",
-  "人工",
-  "表面处理",
-  "模具/治具",
-  "物流/损耗",
-  "五金包",
-  "叶片组",
-  "电机",
-  "杂项",
-  "人工/管理/利润",
-  "材料成本合计",
-  "出厂价",
-  "其他"
-] as const;
+export const STANDARD_CATEGORIES = STANDARD_MATERIAL_CATEGORIES;
 
 export type CostFilters = {
   supplierNames: string[];
