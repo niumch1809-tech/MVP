@@ -8,6 +8,8 @@ import { IntegratedCostTable } from "@/components/IntegratedCostTable";
 import { ManualAdjustmentBoard, MaterialAlignmentBoard } from "@/components/ManualAdjustmentBoard";
 import type { ManualGroup } from "@/components/ManualAdjustmentBoard";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
+import { PdfExportButton } from "@/components/PdfExportButton";
+import { PrintableMultiCostReport } from "@/components/PrintableCostReport";
 import { ResultReport } from "@/components/ResultReport";
 import { SingleBomAnalysis } from "@/components/SingleBomAnalysis";
 import { WorkspaceInteractionLayer } from "@/components/WorkspaceInteractionLayer";
@@ -574,6 +576,13 @@ export default function Home() {
               >
                 页面说明
               </button>
+              {(activeView === "single" || activeView === "compare") && (
+                <PdfExportButton
+                  targetId={activeView === "single" ? "single-cost-pdf-report" : "multi-cost-pdf-report"}
+                  reportTitle={activeView === "single" ? "单份 BOM 成本分析报告" : "多份 BOM 成本对比与结论"}
+                  fileName={activeView === "single" ? "单份BOM成本分析报告" : "多份BOM成本对比报告"}
+                />
+              )}
             </div>
           </header>
           <DetailsDialog
@@ -625,27 +634,34 @@ export default function Home() {
                 onSupplierChecked={setSupplierChecked}
                 onUpdateFilter={updateFilter}
               />
-              <CostDashboard
+              <div className="min-w-0">
+                <CostDashboard
+                  comparison={comparison}
+                  selectedCategory={filters.category}
+                  supplierAliases={supplierAliases}
+                  onSupplierAliasChange={updateSupplierAlias}
+                  conclusion={
+                    <ResultReport
+                      comparison={comparison}
+                      selectedCategory={filters.category}
+                      supplierAliases={supplierAliases}
+                      onInspectRows={(selectedRows, title) => {
+                        setFocusedDetail({ rows: selectedRows, title });
+                      }}
+                    />
+                  }
+                  onSelectCategory={selectChartCategory}
+                  onSelectMaterial={selectChartMaterial}
+                  onSelectSupplier={selectChartSupplier}
+                  onInspectRows={(selectedRows, title) => {
+                    setFocusedDetail({ rows: selectedRows, title });
+                  }}
+                />
+              </div>
+              <PrintableMultiCostReport
+                id="multi-cost-pdf-report"
                 comparison={comparison}
-                selectedCategory={filters.category}
                 supplierAliases={supplierAliases}
-                onSupplierAliasChange={updateSupplierAlias}
-                conclusion={
-                  <ResultReport
-                    comparison={comparison}
-                    selectedCategory={filters.category}
-                    supplierAliases={supplierAliases}
-                    onInspectRows={(selectedRows, title) => {
-                      setFocusedDetail({ rows: selectedRows, title });
-                    }}
-                  />
-                }
-                onSelectCategory={selectChartCategory}
-                onSelectMaterial={selectChartMaterial}
-                onSelectSupplier={selectChartSupplier}
-                onInspectRows={(selectedRows, title) => {
-                  setFocusedDetail({ rows: selectedRows, title });
-                }}
               />
             </>
           )}
@@ -669,13 +685,15 @@ export default function Home() {
           )}
 
           {activeView === "single" && (
-            <SingleBomAnalysis
-              rows={quoteRows}
-              onInspectRows={(selectedRows, title) => {
-                setDetailSelection({ rows: selectedRows, title });
-                setActiveView("details");
-              }}
-            />
+            <div className="min-w-0">
+              <SingleBomAnalysis
+                rows={quoteRows}
+                onInspectRows={(selectedRows, title) => {
+                  setDetailSelection({ rows: selectedRows, title });
+                  setActiveView("details");
+                }}
+              />
+            </div>
           )}
 
           {activeView === "details" && (

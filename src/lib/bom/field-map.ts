@@ -132,7 +132,15 @@ function isHeaderMatch(header: string, candidate: string): boolean {
     return false;
   }
 
-  return header === candidate || header.includes(candidate);
+  if (header === candidate) return true;
+
+  // These short labels are meaningful only as complete headers. Treating
+  // "规格说明" as "说明/备注", for example, maps one column to two fields.
+  if (["name", "名称", "描述", "说明", "规格", "型号", "备注"].includes(candidate)) {
+    return false;
+  }
+
+  return header.includes(candidate);
 }
 
 function normalizeHeader(value: string): string {

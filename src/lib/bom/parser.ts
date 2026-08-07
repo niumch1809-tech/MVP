@@ -10,6 +10,7 @@ import {
   normalizeMaterialName,
   normalizeUnit,
   parseMaterialDescriptor,
+  recoverKnownMaterialFields,
   toNumber
 } from "./normalize";
 import { findStructuredQuoteTitle, parseQuoteIdentity } from "./quote-identity";
@@ -326,9 +327,14 @@ function toCanonicalRow(
   const quantityRaw = getValue(row, fields.quantity);
   const unitPriceRaw = getValue(row, fields.unitPrice);
   const amountRaw = getValue(row, fields.amount);
-  const rawMaterialName = getString(row, fields.materialName);
-  const rawSpec = getString(row, fields.spec);
-  const rawRemark = getString(row, fields.remark);
+  const recoveredFields = recoverKnownMaterialFields(
+    getString(row, fields.materialName),
+    getString(row, fields.spec),
+    getString(row, fields.remark)
+  );
+  const rawMaterialName = recoveredFields.materialName;
+  const rawSpec = recoveredFields.spec;
+  const rawRemark = recoveredFields.remark;
   const descriptor = parseMaterialDescriptor(rawMaterialName, rawSpec);
   const rawCategory = getString(row, fields.category);
   const isTemplateSummaryRow = !descriptor.materialName && isTemplateSummaryLabel(rawCategory);
@@ -380,10 +386,12 @@ function toCanonicalRow(
     amount,
     totalPrice: amount,
     currency: getString(row, fields.currency) || "CNY",
-    remark: getString(row, fields.remark),
+    remark: rawRemark,
     isAmountCalculated: shouldCalculateAmount,
     dataIssues,
-    originalFields: row,
+    originalFields: recoveredFields.recoveredFrom
+      ? { ...row, 物料字段纠偏: `从${recoveredFields.recoveredFrom === "spec" ? "规格" : "备注"}列识别已知物料名` }
+      : row,
     raw: row
   };
 }

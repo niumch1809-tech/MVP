@@ -20,6 +20,7 @@ import {
   type SingleBomInsight
 } from "@/lib/bom/single-bom-analysis";
 import { getCostCategoryColor, getCostMaterialColor } from "@/lib/design/cost-palette";
+import { PrintableSingleCostReport } from "@/components/PrintableCostReport";
 import type { CanonicalBomRow } from "@/types/bom";
 
 type Props = {
@@ -141,6 +142,7 @@ export function SingleBomAnalysis({ rows, onInspectRows }: Props) {
 
   return (
     <section className="reveal-in grid min-w-0 max-w-full gap-4 overflow-hidden">
+      <PrintableSingleCostReport id="single-cost-pdf-report" analysis={analysis} />
       <section className="dashboard-card dashboard-card-compact">
         <div className="grid gap-4 lg:grid-cols-[minmax(280px,0.9fr)_minmax(300px,420px)_minmax(280px,0.9fr)] lg:items-end">
           <div>
@@ -149,7 +151,7 @@ export function SingleBomAnalysis({ rows, onInspectRows }: Props) {
               选择一份报价，查看材料、其他费用和重点物料。
             </p>
           </div>
-          <label className="grid gap-1.5 lg:col-start-2">
+          <label className="grid gap-1.5 lg:col-start-2" data-print-hide>
             <span className="type-caption font-semibold text-slate-600">选择报价</span>
             <select
               value={selectedObject}

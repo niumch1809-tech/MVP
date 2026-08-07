@@ -25,6 +25,13 @@ export type ParsedMaterialDescriptor = {
   normalizedName: string;
 };
 
+export type RecoveredMaterialFields = {
+  materialName: string;
+  spec: string;
+  remark: string;
+  recoveredFrom: "" | "spec" | "remark";
+};
+
 const SPEC_PATTERNS = [
   /\b\d+(\.\d+)?\s*(mm|cm|m|w|v|a|ma|k|lm|kg|g|寸|inch|in)\b/gi,
   /\b\d+\s*[x*×]\s*\d+(\s*[x*×]\s*\d+)?\s*(mm|cm|m)?\b/gi,
@@ -38,6 +45,25 @@ const SPEC_PATTERNS = [
 export function normalizeMaterialName(value: unknown): string {
   const descriptor = parseMaterialDescriptor(value, "");
   return descriptor.normalizedName;
+}
+
+export function recoverKnownMaterialFields(
+  materialNameValue: unknown,
+  specValue: unknown,
+  remarkValue: unknown
+): RecoveredMaterialFields {
+  const materialName = cleanText(materialNameValue);
+  const spec = cleanText(specValue);
+  const remark = cleanText(remarkValue);
+  if (materialName) return { materialName, spec, remark, recoveredFrom: "" };
+
+  if (isStandaloneKnownMaterial(spec)) {
+    return { materialName: spec, spec: "", remark, recoveredFrom: "spec" };
+  }
+  if (isStandaloneKnownMaterial(remark)) {
+    return { materialName: remark, spec, remark: "", recoveredFrom: "remark" };
+  }
+  return { materialName, spec, remark, recoveredFrom: "" };
 }
 
 export function parseMaterialDescriptor(nameValue: unknown, specValue: unknown): ParsedMaterialDescriptor {
@@ -207,6 +233,13 @@ function cleanText(value: unknown): string {
     .replace(/\r?\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isStandaloneKnownMaterial(value: string): boolean {
+  if (!value || value.length > 42) return false;
+  if (/[。；;！？!?]/.test(value)) return false;
+  if (/^(?:备注|说明|注意|要求|参考|详见)[:：]/.test(value)) return false;
+  return Boolean(findMaterialKnowledgeMatch(value));
 }
 
 function extractSpecParts(text: string): string[] {

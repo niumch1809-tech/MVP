@@ -13,6 +13,7 @@ import {
   normalizeMaterialName,
   normalizeUnit,
   parseMaterialDescriptor,
+  recoverKnownMaterialFields,
   toNumber
 } from "./normalize";
 import { findStructuredQuoteTitle, parseQuoteIdentity } from "./quote-identity";
@@ -405,12 +406,21 @@ function pickSummaryAmount(cells: unknown[]): number {
 function extractComplexRowFields(block: ComplexSheetBlock, source: Record<string, unknown>, cells: unknown[]): ExtractedComplexRowFields {
   const fields = block.fieldMapping;
   const rawCategory = getString(source, fields.category);
-  const rawMaterial = getString(source, fields.materialName);
-  const rawSpec = getString(source, fields.spec);
-  const rawRemark = getString(source, fields.remark);
+  const recoveredFields = recoverKnownMaterialFields(
+    getString(source, fields.materialName),
+    getString(source, fields.spec),
+    getString(source, fields.remark)
+  );
+  const rawMaterial = recoveredFields.materialName;
+  const rawSpec = recoveredFields.spec;
+  const rawRemark = recoveredFields.remark;
   const category = isLikelyCategoryLabel(rawCategory) ? normalizeBomCategory(rawCategory, rawMaterial) : "";
   let materialName = isUsableMaterialLabel(rawMaterial) ? rawMaterial : "";
-  let materialSource = materialName ? String(fields.materialName ?? "物料列") : "";
+  let materialSource = materialName
+    ? recoveredFields.recoveredFrom
+      ? `${recoveredFields.recoveredFrom === "spec" ? "规格" : "备注"}列纠偏`
+      : String(fields.materialName ?? "物料列")
+    : "";
 
   if (!materialName && rawCategory && !isLikelyCategoryLabel(rawCategory) && isUsableMaterialLabel(rawCategory)) {
     materialName = rawCategory;
