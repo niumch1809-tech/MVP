@@ -47,6 +47,9 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
   const [sortKey, setSortKey] = useState<SortKey>("category");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const suppliers = comparison.activeSuppliers;
+  const isSingleQuote = suppliers.length === 1;
+  const singleSupplier = suppliers[0] ?? "";
+  const singleMaterialTotal = comparison.totals.materialTotals[singleSupplier] ?? 0;
 
   const rows = useMemo(
     () => buildDisplayRows(comparison, sortKey, sortDirection, outputNameSupplier),
@@ -67,7 +70,11 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
       <div className="flex flex-col gap-2 border-b border-slate-200/80 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="type-panel-title text-ink">完整成本对比</h3>
-          <p className="type-caption text-slate-500">先看品类合计，再看每项物料；差值按第二份报价减第一份。</p>
+          <p className="type-caption text-slate-500">
+            {isSingleQuote
+              ? "单份核价按物料金额计算占材料成本比例，并标出高占比物料。"
+              : "先看品类合计，再看每项物料；差值按第二份报价减第一份。"}
+          </p>
         </div>
         <span className="type-caption rounded-[12px] bg-white/82 px-3 py-1 font-semibold text-slate-600 ring-1 ring-slate-200/80">
           {comparison.materialComparisons.length} 个物料 / {suppliers.length} 份报价
@@ -93,9 +100,18 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
                   </th>
                 </Fragment>
               ))}
-              <SortHeader label="差值" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
-              <SortHeader label="百分比" active={sortKey === "diffRate"} direction={sortDirection} align="right" onClick={() => toggleSort("diffRate")} />
-              <SortHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
+              {isSingleQuote ? (
+                <>
+                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 text-right font-semibold">占材料成本</th>
+                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold">关注</th>
+                </>
+              ) : (
+                <>
+                  <SortHeader label="差值" active={sortKey === "diffAmount"} direction={sortDirection} align="right" onClick={() => toggleSort("diffAmount")} />
+                  <SortHeader label="百分比" active={sortKey === "diffRate"} direction={sortDirection} align="right" onClick={() => toggleSort("diffRate")} />
+                  <SortHeader label="覆盖" active={sortKey === "coverage"} direction={sortDirection} align="right" onClick={() => toggleSort("coverage")} />
+                </>
+              )}
               <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold">明细</th>
             </tr>
           </thead>
@@ -123,15 +139,32 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
                     </td>
                   </Fragment>
                 ))}
-                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
-                  {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
-                </td>
-                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
-                  {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right text-slate-600">
-                  {item.coverage}/{item.totalSlots}
-                </td>
+                {isSingleQuote ? (() => {
+                  const share = singleMaterialTotal > 0 ? (item.amounts[singleSupplier] ?? 0) / singleMaterialTotal : 0;
+                  const attention = item.kind === "item" ? getShareAttention(share) : "";
+                  return (
+                    <>
+                      <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${share >= 0.1 ? "text-danger" : share >= 0.05 ? "text-amber-600" : "text-slate-700"}`}>
+                        {formatPercent(share)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-xs font-semibold">
+                        {attention ? <span className={`rounded-full px-2 py-1 ${share >= 0.1 ? "bg-red-50 text-danger" : "bg-amber-50 text-amber-700"}`}>{attention}</span> : <span className="text-slate-300">-</span>}
+                      </td>
+                    </>
+                  );
+                })() : (
+                  <>
+                    <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
+                      {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
+                    </td>
+                    <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-danger" : "text-accent"}`}>
+                      {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right text-slate-600">
+                      {item.coverage}/{item.totalSlots}
+                    </td>
+                  </>
+                )}
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">
                   {item.kind === "item" ? `${item.productName || "未指定产品"} / ${item.rows.length} 行来源` : `${item.rows.length} 行来源`}
                 </td>
@@ -149,19 +182,30 @@ export function IntegratedCostTable({ comparison, outputNameSupplier = "", onIns
                     <td className="whitespace-nowrap px-3 py-2 text-xs text-white/45">-</td>
                   </Fragment>
                 ))}
-                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
-                  {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
-                </td>
-                <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
-                  {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right text-white/70">-</td>
+                {isSingleQuote ? (
+                  <>
+                    <td className="whitespace-nowrap px-3 py-2 text-right font-semibold">
+                      {item.label === "材料成本合计" ? "100.0%" : "-"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-white/65">-</td>
+                  </>
+                ) : (
+                  <>
+                    <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
+                      {Number.isFinite(item.diffAmount) ? formatMoney(item.diffAmount) : "-"}
+                    </td>
+                    <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold ${item.diffAmount >= 0 ? "text-red-200" : "text-emerald-200"}`}>
+                      {Number.isFinite(item.diffRate) ? formatPercent(item.diffRate) : "-"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right text-white/70">-</td>
+                  </>
+                )}
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-white/65">{item.note}</td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={suppliers.length * 2 + 6} className="px-3 py-10 text-center text-sm text-slate-500">
+                <td colSpan={suppliers.length * 2 + (isSingleQuote ? 5 : 6)} className="px-3 py-10 text-center text-sm text-slate-500">
                   当前没有可输出数据。请先上传报价 BOM，并确认至少有一个可比较物料。
                 </td>
               </tr>
@@ -315,6 +359,12 @@ function getPairDiff(values: number[]): { diffAmount: number; diffRate: number }
 
 function formatMoney(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : "0.00";
+}
+
+function getShareAttention(share: number): string {
+  if (share >= 0.1) return "高占比";
+  if (share >= 0.05) return "重点关注";
+  return "";
 }
 
 function formatPercent(value: number): string {

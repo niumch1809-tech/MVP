@@ -753,7 +753,11 @@ export default function Home() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-ink">导出结果</h3>
-                    <p className="text-xs text-slate-500">选择准备沟通的供应商，表格会优先使用对方熟悉的物料名称。</p>
+                    <p className="text-xs text-slate-500">
+                      {comparison.activeSuppliers.length === 1
+                        ? "当前将导出单份核价表：标记每项物料占材料成本的比例，并汇总高占比物料。"
+                        : "选择准备沟通的供应商，表格会优先使用对方熟悉的物料名称。"}
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="field-shell flex items-center gap-2 rounded-[14px] px-3 py-2 text-xs font-semibold text-slate-600">

@@ -14,6 +14,11 @@ type MergeRange = {
   endCol: number;
 };
 
+type SheetLayout = {
+  columnWidths: number[];
+  frozenRow: number;
+};
+
 const SUMMARY_LABELS = ["材料成本合计", "人工/管理/利润合计", "核验总成本/出厂价"];
 const STYLE = {
   default: 0,
@@ -33,10 +38,18 @@ const STYLE = {
   summaryMoney: 14,
   summaryText: 15,
   summaryYellowText: 16,
-  summaryRedText: 17
+  summaryRedText: 17,
+  share: 18,
+  shareFocus: 19,
+  shareHigh: 20,
+  note: 21
 } as const;
 
 export function buildTemplateOutputArray(comparison: CostComparison, outputNameSupplier = ""): ArrayBuffer {
+  if (comparison.activeSuppliers.length === 1) {
+    return buildSingleSupplierOutputArray(comparison, comparison.activeSuppliers[0]);
+  }
+
   const suppliers = comparison.activeSuppliers.slice(0, 2);
   const supplierA = suppliers[0] || "供应商1";
   const supplierB = suppliers[1] || "供应商2";
@@ -110,7 +123,115 @@ export function buildTemplateOutputArray(comparison: CostComparison, outputNameS
     merges.push(merge(rowNumber, 1, rowNumber, 8));
   });
 
-  return createXlsx(rows, merges);
+  return createXlsx(rows, merges, {
+    columnWidths: [16, 34, 14, 30, 14, 30, 13, 13, 16, 16, 22],
+    frozenRow: 1
+  });
+}
+
+function buildSingleSupplierOutputArray(comparison: CostComparison, supplier: string): ArrayBuffer {
+  const items = comparison.materialComparisons
+    .map((item) => ({
+      item,
+      point: item.suppliers.find((point) => point.supplierName === supplier)
+    }))
+    .filter((entry): entry is { item: MaterialComparisonItem; point: NonNullable<typeof entry.point> } => Boolean(entry.point));
+  const detailTotal = items.reduce((sum, entry) => sum + entry.point.amount, 0);
+  const materialTotal = comparison.totals.materialTotals[supplier] || detailTotal;
+  const overhead = comparison.totals.derivedOverheadTotals[supplier] ?? 0;
+  const factoryPrice = comparison.totals.factoryPriceTotals[supplier] || materialTotal + overhead;
+  const ranked = [...items].sort((a, b) => b.point.amount - a.point.amount);
+  const highlighted = ranked.filter((entry) => getMaterialShare(entry.point.amount, materialTotal) >= 0.1);
+  const summaryItems = (highlighted.length > 0 ? highlighted : ranked.slice(0, 3)).slice(0, 6);
+  const rows: SheetCell[][] = [];
+  const merges: MergeRange[] = [];
+
+  rows.push([cell(`${supplier} 单份报价成本核价表`, STYLE.title), ...Array.from({ length: 8 }, () => empty(STYLE.title))]);
+  merges.push(merge(1, 1, 1, 9));
+  rows.push([cell(`材料成本：${formatPlainMoney(materialTotal)}　其他费用：${formatPlainMoney(overhead)}　核验总成本/出厂价：${formatPlainMoney(factoryPrice)}`, STYLE.note), ...Array.from({ length: 8 }, () => empty(STYLE.note))]);
+  merges.push(merge(2, 1, 2, 9));
+  rows.push([cell(buildHighShareSummary(summaryItems, materialTotal), STYLE.note), ...Array.from({ length: 8 }, () => empty(STYLE.note))]);
+  merges.push(merge(3, 1, 3, 9));
+  rows.push(["品类", "物料", "规格描述", "单位", "数量", "单价", "金额", "占材料成本", "关注"].map((value) => cell(value, STYLE.header)));
+
+  comparison.categories.forEach((category) => {
+    const categoryItems = items
+      .filter((entry) => entry.item.category === category)
+      .sort((a, b) => b.point.amount - a.point.amount);
+    if (categoryItems.length === 0) return;
+    const startRow = rows.length + 1;
+
+    categoryItems.forEach((entry, index) => {
+      const share = getMaterialShare(entry.point.amount, materialTotal);
+      const level = getShareLevel(share);
+      const shareStyle = level === "high" ? STYLE.shareHigh : level === "focus" ? STYLE.shareFocus : STYLE.share;
+      const attentionStyle = level === "high" ? STYLE.redText : level === "focus" ? STYLE.yellowText : STYLE.default;
+      rows.push([
+        index === 0 ? cell(category, STYLE.category) : empty(STYLE.category),
+        cell(getOutputMaterialName(entry.item, [supplier], supplier), STYLE.material),
+        cell(getSupplierSpec(entry.item, supplier), STYLE.material),
+        cell(entry.point.row.unit || "", STYLE.default),
+        cell(entry.point.quantity, STYLE.money),
+        cell(entry.point.unitPrice, STYLE.money),
+        cell(entry.point.amount, STYLE.money),
+        cell(share, shareStyle),
+        cell(level === "high" ? "高占比" : level === "focus" ? "重点关注" : "", attentionStyle)
+      ]);
+    });
+
+    const endRow = rows.length;
+    if (endRow > startRow) merges.push(merge(startRow, 1, endRow, 1));
+  });
+
+  const summaryRows = [
+    { label: "材料成本合计", amount: materialTotal, share: 1, note: "物料占比以该金额为分母" },
+    { label: "人工/管理/利润合计", amount: overhead, share: factoryPrice > 0 ? overhead / factoryPrice : 0, note: "占核验总成本" },
+    { label: "核验总成本/出厂价", amount: factoryPrice, share: 1, note: "供应商最终报价" }
+  ];
+  summaryRows.forEach((summary) => {
+    const rowNumber = rows.length + 1;
+    rows.push([
+      cell(summary.label, STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      empty(STYLE.summaryLabel),
+      cell(summary.amount, STYLE.summaryMoney),
+      cell(summary.share, STYLE.percent),
+      cell(summary.note, STYLE.summaryText)
+    ]);
+    merges.push(merge(rowNumber, 1, rowNumber, 6));
+  });
+
+  return createXlsx(rows, merges, {
+    columnWidths: [16, 30, 38, 10, 11, 13, 14, 15, 15],
+    frozenRow: 4
+  });
+}
+
+function buildHighShareSummary(
+  entries: Array<{ item: MaterialComparisonItem; point: { amount: number } }>,
+  materialTotal: number
+): string {
+  if (entries.length === 0) return "高占比物料：暂无可计算的物料金额。";
+  return `高占比物料：${entries
+    .map((entry) => `${entry.item.materialName} ${formatPercent(getMaterialShare(entry.point.amount, materialTotal))}`)
+    .join("；")}。建议优先核对这些物料的规格、用量和计价口径。`;
+}
+
+function getMaterialShare(amount: number, materialTotal: number): number {
+  return materialTotal > 0 ? amount / materialTotal : 0;
+}
+
+function getShareLevel(share: number): "high" | "focus" | "normal" {
+  if (share >= 0.1) return "high";
+  if (share >= 0.05) return "focus";
+  return "normal";
+}
+
+function formatPlainMoney(value: number): string {
+  return value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function buildSummaryRows(comparison: CostComparison, supplierA: string, supplierB: string) {
@@ -239,7 +360,7 @@ function merge(startRow: number, startCol: number, endRow: number, endCol: numbe
   return { startRow, startCol, endRow, endCol };
 }
 
-function createXlsx(rows: SheetCell[][], merges: MergeRange[]): ArrayBuffer {
+function createXlsx(rows: SheetCell[][], merges: MergeRange[], layout: SheetLayout): ArrayBuffer {
   const files = [
     { path: "[Content_Types].xml", content: contentTypesXml() },
     { path: "_rels/.rels", content: rootRelsXml() },
@@ -248,12 +369,12 @@ function createXlsx(rows: SheetCell[][], merges: MergeRange[]): ArrayBuffer {
     { path: "xl/workbook.xml", content: workbookXml() },
     { path: "xl/_rels/workbook.xml.rels", content: workbookRelsXml() },
     { path: "xl/styles.xml", content: stylesXml() },
-    { path: "xl/worksheets/sheet1.xml", content: sheetXml(rows, merges) }
+    { path: "xl/worksheets/sheet1.xml", content: sheetXml(rows, merges, layout) }
   ];
   return zipStore(files.map((file) => ({ name: file.path, bytes: encodeUtf8(file.content) })));
 }
 
-function sheetXml(rows: SheetCell[][], merges: MergeRange[]): string {
+function sheetXml(rows: SheetCell[][], merges: MergeRange[], layout: SheetLayout): string {
   const rowXml = rows
     .map((row, rowIndex) => {
       const cells = row
@@ -267,7 +388,7 @@ function sheetXml(rows: SheetCell[][], merges: MergeRange[]): string {
         })
         .join("");
       const rowNumber = rowIndex + 1;
-      const rowAttrs = rowNumber === 1 ? ` r="${rowNumber}" ht="20" customHeight="1"` : ` r="${rowNumber}"`;
+      const rowAttrs = rowNumber <= layout.frozenRow ? ` r="${rowNumber}" ht="22" customHeight="1"` : ` r="${rowNumber}"`;
       return `<row${rowAttrs}>${cells}</row>`;
     })
     .join("");
@@ -275,18 +396,17 @@ function sheetXml(rows: SheetCell[][], merges: MergeRange[]): string {
     ? `<mergeCells count="${merges.length}">${merges.map((item) => `<mergeCell ref="${rangeRef(item)}"/>`).join("")}</mergeCells>`
     : "";
 
+  const columnXml = layout.columnWidths
+    .map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
+    .join("");
+  const maxColumns = Math.max(1, ...rows.map((row) => row.length));
+  const dimension = `${cellRef(1, 1)}:${cellRef(Math.max(1, rows.length), maxColumns)}`;
+
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <dimension ref="A1:J${rows.length}"/>
-  <sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
-  <cols>
-    <col min="1" max="1" width="16" customWidth="1"/>
-    <col min="2" max="2" width="34" customWidth="1"/>
-    <col min="3" max="3" width="34" customWidth="1"/>
-    <col min="4" max="7" width="13" customWidth="1"/>
-    <col min="8" max="9" width="16" customWidth="1"/>
-    <col min="10" max="10" width="22" customWidth="1"/>
-  </cols>
+  <dimension ref="${dimension}"/>
+  <sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="${layout.frozenRow}" topLeftCell="A${layout.frozenRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <cols>${columnXml}</cols>
   <sheetData>${rowXml}</sheetData>
   ${mergeXml}
 </worksheet>`;
@@ -305,11 +425,13 @@ function stylesXml(): string {
     <font><b/><sz val="10"/><color rgb="FFD97706"/><name val="Microsoft YaHei"/><family val="2"/></font>
     <font><b/><sz val="10"/><color rgb="FFDC2626"/><name val="Microsoft YaHei"/><family val="2"/></font>
   </fonts>
-  <fills count="4">
+  <fills count="6">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFE2F0D9"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF4CC"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFE4E6"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="2">
     <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -322,7 +444,7 @@ function stylesXml(): string {
     </border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="18">
+  <cellXfs count="22">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
@@ -341,6 +463,10 @@ function stylesXml(): string {
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="2" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="3" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
   <dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
