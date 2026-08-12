@@ -14,6 +14,11 @@ import { ResultReport } from "@/components/ResultReport";
 import { SingleBomAnalysis } from "@/components/SingleBomAnalysis";
 import { WorkspaceInteractionLayer } from "@/components/WorkspaceInteractionLayer";
 import { parseBomFileInBrowser } from "@/lib/bom/browser-parser";
+import {
+  applyClassificationProfiles,
+  learnClassificationProfiles,
+  markClassificationProfileApplied
+} from "@/lib/bom/classification-profile";
 import { buildCostComparison, CostFilters, getComparisonObjectLabel, getEffectiveCostCategory } from "@/lib/bom/cost-comparison";
 import { getMaterialPriceComparisons } from "@/lib/bom/material-price";
 import { parseMaterialPriceFile } from "@/lib/bom/price-table-client";
@@ -26,16 +31,20 @@ import {
   MaterialPriceQuoteResponse,
   UploadBomResponse
 } from "@/types/bom";
+import type { BomClassificationProfile } from "@/types/classification-profile";
 
 const LOCAL_RECORDS_KEY = "ai-cost-audit:bom-records";
 const LOCAL_MANUAL_CATEGORIES_KEY = "ai-cost-audit:manual-categories";
 const LOCAL_MANUAL_GROUPS_KEY = "ai-cost-audit:manual-groups";
 const LOCAL_SUPPLIER_ALIASES_KEY = "ai-cost-audit:supplier-chart-aliases";
+const LOCAL_CLASSIFICATION_PROFILES_KEY = "ai-cost-audit:classification-profiles:v1";
 
 type DetailSelection = {
   title: string;
   rows: CanonicalBomRow[];
 };
+
+type ManualSummaryKind = "material" | "overhead" | "factory";
 
 type WorkspaceView = "upload" | "adjust" | "align" | "single" | "compare" | "details" | "output";
 
@@ -121,7 +130,9 @@ export default function Home() {
   const [focusedDetail, setFocusedDetail] = useState<DetailSelection | null>(null);
   const [isViewHelpOpen, setIsViewHelpOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSummaryEntryOpen, setIsSummaryEntryOpen] = useState(false);
   const [supplierAliases, setSupplierAliases] = useState<Record<string, string>>({});
+  const [classificationProfiles, setClassificationProfiles] = useState<BomClassificationProfile[]>([]);
   const [, startFilterTransition] = useTransition();
 
   const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
@@ -149,6 +160,7 @@ export default function Home() {
     setRecords(loadLocalRecords());
     setManualCategories(loadLocalArray<string>(LOCAL_MANUAL_CATEGORIES_KEY));
     setManualGroups(loadLocalArray<ManualGroup>(LOCAL_MANUAL_GROUPS_KEY));
+    setClassificationProfiles(loadLocalArray<BomClassificationProfile>(LOCAL_CLASSIFICATION_PROFILES_KEY));
   }, []);
 
   useEffect(() => {
@@ -183,12 +195,24 @@ export default function Home() {
     setUploadErrors([]);
     setDetailSelection(null);
 
-    const result = await parseSelectedFiles(files, { productName, supplierName, kind });
+    const result = await parseSelectedFiles(files, { productName, supplierName, kind }, classificationProfiles);
+    const appliedProfiles = Array.from(
+      new Set(
+        result.records
+          .flatMap((record) => record.rows.map((row) => row.classificationReference?.profileId ?? ""))
+          .filter(Boolean)
+      )
+    );
+    if (appliedProfiles.length > 0) {
+      const nextProfiles = markClassificationProfileApplied(classificationProfiles, appliedProfiles);
+      saveLocalArray(LOCAL_CLASSIFICATION_PROFILES_KEY, nextProfiles);
+      setClassificationProfiles(nextProfiles);
+    }
     const quoteObjectCount = new Set(result.records.flatMap((record) => record.rows.map(getComparisonObjectLabel))).size;
     setUploadErrors(result.errors);
     setMessage(
       result.records.length > 0
-        ? `成功解析 ${result.records.length} 个文件 / ${quoteObjectCount} 个报价对象，合计 ${result.records.reduce((sum, record) => sum + record.rowCount, 0)} 行。`
+        ? `成功解析 ${result.records.length} 个文件 / ${quoteObjectCount} 个报价对象，合计 ${result.records.reduce((sum, record) => sum + record.rowCount, 0)} 行。${appliedProfiles.length > 0 ? " 已自动套用此前导出结果中的分类。" : ""}`
         : "没有文件解析成功，请检查表头和文件格式。"
     );
     if (result.records.length > 0) {
@@ -293,6 +317,109 @@ export default function Home() {
           }
         : current
     );
+  }
+
+  function saveManualSummaryEntry(input: {
+    objectLabel: string;
+    kind: ManualSummaryKind;
+    amount: number;
+    remark: string;
+  }) {
+    const targetRows = quoteRows.filter((row) => getComparisonObjectLabel(row) === input.objectLabel);
+    const sourceRow = targetRows[0];
+    if (!sourceRow) return false;
+    const meta = MANUAL_SUMMARY_META[input.kind];
+    const existingRow = targetRows.find(
+      (row) =>
+        row.originalFields?.entrySource === "manual-summary" &&
+        row.originalFields?.summaryType === input.kind
+    );
+    const nextRow: CanonicalBomRow = existingRow
+      ? {
+          ...existingRow,
+          materialName: meta.materialName,
+          normalizedName: meta.materialName,
+          category: meta.category,
+          manualCategory: meta.category,
+          quantity: 1,
+          unitPrice: input.amount,
+          amount: input.amount,
+          totalPrice: input.amount,
+          remark: input.remark,
+          dataIssues: [],
+          isAmountCalculated: false,
+          originalFields: {
+            ...existingRow.originalFields,
+            entrySource: "manual-summary",
+            summaryType: input.kind,
+            label: meta.materialName,
+            amount: input.amount
+          },
+          raw: {
+            ...existingRow.raw,
+            entrySource: "manual-summary",
+            summaryType: input.kind,
+            label: meta.materialName,
+            amount: input.amount
+          }
+        }
+      : {
+          id: `manual-summary-${crypto.randomUUID()}`,
+          sourceFileId: sourceRow.sourceFileId,
+          sourceFileName: sourceRow.sourceFileName,
+          sheetName: sourceRow.sheetName,
+          rowNumber: Math.max(...targetRows.map((row) => row.rowNumber), 0) + 1,
+          productName: sourceRow.productName,
+          productModel: sourceRow.productModel,
+          productColor: sourceRow.productColor,
+          quoteName: sourceRow.quoteName,
+          supplierName: sourceRow.supplierName,
+          kind: "supplier_quote",
+          partNumber: "",
+          materialName: meta.materialName,
+          normalizedName: meta.materialName,
+          spec: "",
+          category: meta.category,
+          manualCategory: meta.category,
+          unit: "项",
+          quantity: 1,
+          unitPrice: input.amount,
+          amount: input.amount,
+          totalPrice: input.amount,
+          currency: sourceRow.currency || "CNY",
+          remark: input.remark,
+          isAmountCalculated: false,
+          dataIssues: [],
+          originalFields: {
+            entrySource: "manual-summary",
+            summaryType: input.kind,
+            label: meta.materialName,
+            amount: input.amount
+          },
+          raw: {
+            entrySource: "manual-summary",
+            summaryType: input.kind,
+            label: meta.materialName,
+            amount: input.amount
+          }
+        };
+
+    const nextRecords = records.map((record) => {
+      if (record.id !== sourceRow.sourceFileId && !record.rows.some((row) => row.sourceFileId === sourceRow.sourceFileId)) {
+        return record;
+      }
+      const containsExisting = existingRow && record.rows.some((row) => row.id === existingRow.id);
+      const nextRows = containsExisting
+        ? record.rows.map((row) => (row.id === existingRow.id ? nextRow : row))
+        : [...record.rows, nextRow];
+      return { ...record, rows: nextRows, rowCount: nextRows.length };
+    });
+    saveLocalRecords(nextRecords);
+    setRecords(nextRecords);
+    setDetailSelection(null);
+    setFocusedDetail(null);
+    setIsSummaryEntryOpen(false);
+    return true;
   }
 
   function createManualCategory(category: string) {
@@ -461,6 +588,9 @@ export default function Home() {
 
   function exportTemplateExcel() {
     const data = buildTemplateOutputArray(comparison, outputNameSupplier);
+    const nextProfiles = learnClassificationProfiles(records, comparison.filteredRows, classificationProfiles);
+    saveLocalArray(LOCAL_CLASSIFICATION_PROFILES_KEY, nextProfiles);
+    setClassificationProfiles(nextProfiles);
     downloadBinary(
       data,
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -612,6 +742,7 @@ export default function Home() {
               uploadErrors={uploadErrors}
               isUploading={isUploading}
               records={records}
+              classificationProfileCount={classificationProfiles.length}
               onClear={handleClear}
               onDeleteRecord={handleDeleteRecord}
               onFilesChange={setFiles}
@@ -728,20 +859,36 @@ export default function Home() {
                     <h3 className="text-sm font-semibold text-ink">{detailSelection?.title ?? "当前明细"}</h3>
                     <p className="text-xs text-slate-500">可以排序、筛选和修改；需要时还能查看原始内容。</p>
                   </div>
-                  {detailSelection && (
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
-                      onClick={() => setDetailSelection(null)}
-                      className="button-secondary motion-lift rounded-[12px] px-4 py-2 text-sm font-semibold active:scale-[0.98]"
+                      type="button"
+                      onClick={() => setIsSummaryEntryOpen(true)}
+                      disabled={quoteRows.length === 0}
+                      className="button-primary motion-lift rounded-[12px] px-4 py-2 text-sm font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      返回当前筛选
+                      补录汇总
                     </button>
-                  )}
+                    {detailSelection && (
+                      <button
+                        onClick={() => setDetailSelection(null)}
+                        className="button-secondary motion-lift rounded-[12px] px-4 py-2 text-sm font-semibold active:scale-[0.98]"
+                      >
+                        返回当前筛选
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <BomTable
                   rows={visibleRows}
                   priceComparisonsByRowId={marketPriceByRowId}
                   onUpdateRow={updateSingleRow}
                   onDeleteRow={deleteSingleRow}
+                />
+                <ManualSummaryDialog
+                  open={isSummaryEntryOpen}
+                  rows={quoteRows}
+                  onClose={() => setIsSummaryEntryOpen(false)}
+                  onSave={saveManualSummaryEntry}
                 />
               </section>
             </>
@@ -869,9 +1016,179 @@ function formatCompactNumber(value: number): string {
   return Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: 3 }) : "0";
 }
 
+const MANUAL_SUMMARY_META: Record<ManualSummaryKind, { label: string; materialName: string; category: string; help: string }> = {
+  material: {
+    label: "材料成本",
+    materialName: "材料成本合计",
+    category: "材料成本合计",
+    help: "供应商给出的全部材料费用合计，不会再作为普通物料重复累计。"
+  },
+  overhead: {
+    label: "人工、管理及利润",
+    materialName: "人工/管理/利润合计",
+    category: "人工/管理/利润",
+    help: "填写材料之外的人工、管理、利润、损耗等合计费用。"
+  },
+  factory: {
+    label: "出厂价",
+    materialName: "核验总成本/出厂价",
+    category: "出厂价",
+    help: "供应商最终报价；总价分析和导出将优先使用该金额。"
+  }
+};
+
+function ManualSummaryDialog({
+  open,
+  rows,
+  onClose,
+  onSave
+}: {
+  open: boolean;
+  rows: CanonicalBomRow[];
+  onClose: () => void;
+  onSave: (input: { objectLabel: string; kind: ManualSummaryKind; amount: number; remark: string }) => boolean;
+}) {
+  const quoteOptions = useMemo(
+    () => Array.from(new Set(rows.map(getComparisonObjectLabel).filter(Boolean))),
+    [rows]
+  );
+  const [objectLabel, setObjectLabel] = useState("");
+  const [summaryKind, setSummaryKind] = useState<ManualSummaryKind>("material");
+  const [amount, setAmount] = useState("");
+  const [remark, setRemark] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setObjectLabel((current) => (current && quoteOptions.includes(current) ? current : quoteOptions[0] ?? ""));
+    setError("");
+  }, [open, quoteOptions]);
+
+  useEffect(() => {
+    if (!open || !objectLabel) return;
+    const existing = rows.find(
+      (row) =>
+        getComparisonObjectLabel(row) === objectLabel &&
+        row.originalFields?.entrySource === "manual-summary" &&
+        row.originalFields?.summaryType === summaryKind
+    );
+    setAmount(existing ? String(existing.amount) : "");
+    setRemark(existing?.remark ?? "");
+    setError("");
+  }, [objectLabel, open, rows, summaryKind]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const numericAmount = Number(amount.replace(/[,，￥¥\s]/g, ""));
+    if (!objectLabel) {
+      setError("请先选择要补录的报价。");
+      return;
+    }
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setError("请填写大于 0 的金额。");
+      return;
+    }
+    if (!onSave({ objectLabel, kind: summaryKind, amount: Math.round(numericAmount * 100) / 100, remark: remark.trim() })) {
+      setError("没有找到对应报价，请刷新页面后重试。");
+    }
+  }
+
+  return (
+    <DetailsDialog
+      open={open}
+      title="补录报价汇总"
+      eyebrow="检查明细"
+      onClose={onClose}
+    >
+      <form className="grid gap-4" onSubmit={handleSubmit}>
+        <label className="block">
+          <span className="type-caption font-semibold text-slate-600">对应报价</span>
+          <select
+            value={objectLabel}
+            onChange={(event) => setObjectLabel(event.target.value)}
+            className="field-shell mt-2 h-11 w-full px-3 text-sm outline-none"
+          >
+            {quoteOptions.map((quote) => (
+              <option key={quote} value={quote}>{quote}</option>
+            ))}
+          </select>
+        </label>
+
+        <fieldset>
+          <legend className="type-caption font-semibold text-slate-600">补录内容</legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {(Object.keys(MANUAL_SUMMARY_META) as ManualSummaryKind[]).map((kind) => {
+              const meta = MANUAL_SUMMARY_META[kind];
+              const selected = summaryKind === kind;
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => setSummaryKind(kind)}
+                  className={`min-h-[74px] rounded-[12px] border p-3 text-left transition-colors ${
+                    selected
+                      ? "border-slate-950 bg-slate-950 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                  }`}
+                >
+                  <span className="block text-sm font-semibold">{meta.label}</span>
+                  <span className={`mt-1 block text-[11px] leading-4 ${selected ? "text-slate-300" : "text-slate-500"}`}>
+                    {kind === "material" ? "材料汇总" : kind === "overhead" ? "其他费用" : "最终报价"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <div className="rounded-[12px] bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+          {MANUAL_SUMMARY_META[summaryKind].help}
+        </div>
+
+        <label className="block">
+          <span className="type-caption font-semibold text-slate-600">金额</span>
+          <div className="field-shell mt-2 flex h-12 items-center gap-2 px-4">
+            <span className="font-semibold text-slate-400">¥</span>
+            <input
+              autoFocus
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="0.00"
+              className="min-w-0 flex-1 bg-transparent text-base font-semibold text-ink outline-none"
+            />
+          </div>
+        </label>
+
+        <label className="block">
+          <span className="type-caption font-semibold text-slate-600">备注（可选）</span>
+          <input
+            value={remark}
+            onChange={(event) => setRemark(event.target.value)}
+            placeholder="例如：供应商邮件确认值"
+            className="field-shell mt-2 h-11 w-full px-4 text-sm outline-none"
+          />
+        </label>
+
+        {error && <p className="rounded-[10px] bg-red-50 px-3 py-2 text-xs text-danger">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="button-secondary rounded-[12px] px-4 py-2.5 text-sm font-semibold">
+            取消
+          </button>
+          <button type="submit" className="button-primary rounded-[12px] px-5 py-2.5 text-sm font-semibold">
+            保存汇总
+          </button>
+        </div>
+      </form>
+    </DetailsDialog>
+  );
+}
+
 async function parseSelectedFiles(
   files: File[],
-  meta: { productName: string; supplierName: string; kind: BomFileKind }
+  meta: { productName: string; supplierName: string; kind: BomFileKind },
+  classificationProfiles: BomClassificationProfile[]
 ): Promise<UploadBomResponse> {
   const response: UploadBomResponse = { records: [], errors: [] };
   for (const file of files) {
@@ -893,7 +1210,9 @@ async function parseSelectedFiles(
         data: await file.arrayBuffer(),
         extension
       });
-      response.records.push({ ...record, sourceSignature });
+      const parsedRecord = { ...record, sourceSignature };
+      const application = applyClassificationProfiles(parsedRecord, classificationProfiles);
+      response.records.push(application?.record ?? parsedRecord);
     } catch (error) {
       response.errors.push({
         fileName: file.name,
@@ -931,7 +1250,11 @@ function loadLocalArray<T>(key: string): T[] {
 
 function saveLocalArray<T>(key: string, value: T[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Classification memory and UI preferences must never block parsing or export.
+  }
 }
 
 function loadLocalRecord<T>(key: string): Record<string, T> {
@@ -1012,6 +1335,7 @@ function UploadView({
   uploadErrors,
   isUploading,
   records,
+  classificationProfileCount,
   onClear,
   onDeleteRecord,
   onFilesChange,
@@ -1028,6 +1352,7 @@ function UploadView({
   uploadErrors: UploadBomResponse["errors"];
   isUploading: boolean;
   records: BomFileRecord[];
+  classificationProfileCount: number;
   onClear: () => void;
   onDeleteRecord: (recordId: string) => void;
   onFilesChange: (files: File[]) => void;
@@ -1076,6 +1401,11 @@ function UploadView({
           <div>
             <h3 className="type-panel-title text-ink">导入到哪里</h3>
             <p className="type-caption mt-1 text-slate-500">{kindHelp}</p>
+            {classificationProfileCount > 0 && (
+              <p className="type-caption mt-1 text-emerald-700">
+                已记住 {classificationProfileCount} 种导出过的 BOM 格式，相似文件会自动沿用分类。
+              </p>
+            )}
           </div>
           <div className="inline-flex rounded-[10px] bg-slate-100 p-1" role="group" aria-label="文件用途">
             <button

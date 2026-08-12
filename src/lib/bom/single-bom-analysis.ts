@@ -80,7 +80,7 @@ export function buildSingleBomAnalysis(
   const overheadRows = objectRows.filter(
     (row) =>
       ["人工", "人工/管理/利润"].includes(effectiveCategory(row)) &&
-      !isRollupCostRow(row.materialName, row.category)
+      (!isRollupCostRow(row.materialName, row.category) || isManualSummaryEntry(row))
   );
   const factoryPriceRows = objectRows.filter((row) => effectiveCategory(row) === "出厂价");
   const declaredMaterialTotal = pickLargestAmount(declaredMaterialRows);
@@ -154,6 +154,10 @@ export function buildSingleBomAnalysis(
       issueCount: objectRows.reduce((sum, row) => sum + row.dataIssues.length, 0)
     })
   };
+}
+
+function isManualSummaryEntry(row: CanonicalBomRow): boolean {
+  return row.originalFields?.entrySource === "manual-summary" || row.raw?.entrySource === "manual-summary";
 }
 
 function isMaterialDetailRow(row: CanonicalBomRow): boolean {
@@ -438,6 +442,8 @@ function sumAmounts(rows: CanonicalBomRow[]): number {
 }
 
 function pickLargestAmount(rows: CanonicalBomRow[]): number {
+  const manualValues = rows.filter(isManualSummaryEntry).map((row) => row.amount).filter((amount) => amount > 0);
+  if (manualValues.length > 0) return Math.max(...manualValues);
   return Math.max(0, ...rows.map((row) => row.amount).filter((amount) => amount > 0));
 }
 

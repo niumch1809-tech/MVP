@@ -428,17 +428,34 @@ function buildSupplierCostTotals(rows: CanonicalBomRow[]): {
   derivedOverhead: number;
 } {
   const materialDetail = rows.filter(isComparableCostRow).reduce((sum, row) => sum + row.amount, 0);
-  const materialSummary = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCostCategory(row) === "材料成本合计"));
-  const explicitOverhead =
+  const materialSummaryRows = rows.filter((row) => getEffectiveCostCategory(row) === "材料成本合计");
+  const manualMaterialSummary = pickSingleSummaryAmount(materialSummaryRows.filter(isManualSummaryEntry));
+  const materialSummary = manualMaterialSummary || pickSingleSummaryAmount(materialSummaryRows);
+  const manualOverhead = pickSingleSummaryAmount(
+    rows.filter(
+      (row) => ["人工", "人工/管理/利润"].includes(getEffectiveCostCategory(row)) && isManualSummaryEntry(row)
+    )
+  );
+  const parsedOverhead =
     rows
-      .filter((row) => ["人工", "人工/管理/利润"].includes(getEffectiveCostCategory(row)) && !isRollupCostRow(row.materialName, row.category))
+      .filter(
+        (row) =>
+          ["人工", "人工/管理/利润"].includes(getEffectiveCostCategory(row)) &&
+          !isManualSummaryEntry(row) &&
+          !isRollupCostRow(row.materialName, row.category)
+      )
       .reduce((sum, row) => sum + row.amount, 0) + sumAdditionalOverheadColumns(rows);
+  const explicitOverhead = manualOverhead || parsedOverhead;
   const factoryPrice = pickSingleSummaryAmount(rows.filter((row) => getEffectiveCostCategory(row) === "出厂价"));
 
-  const materialTotal = chooseMaterialTotal({ materialSummary, materialDetail, factoryPrice });
+  const materialTotal = manualMaterialSummary || chooseMaterialTotal({ materialSummary, materialDetail, factoryPrice });
   const derivedOverhead = explicitOverhead || (factoryPrice > 0 ? Math.max(factoryPrice - materialTotal, 0) : 0);
 
   return { materialTotal, explicitOverhead, factoryPrice, derivedOverhead };
+}
+
+function isManualSummaryEntry(row: CanonicalBomRow): boolean {
+  return row.originalFields?.entrySource === "manual-summary" || row.raw?.entrySource === "manual-summary";
 }
 
 function chooseMaterialTotal(input: { materialSummary: number; materialDetail: number; factoryPrice: number }): number {
@@ -455,6 +472,8 @@ function chooseMaterialTotal(input: { materialSummary: number; materialDetail: n
 }
 
 function pickSingleSummaryAmount(rows: CanonicalBomRow[]): number {
+  const manualValues = rows.filter(isManualSummaryEntry).map((row) => row.amount).filter((value) => value > 0);
+  if (manualValues.length > 0) return Math.max(...manualValues);
   const values = rows.map((row) => row.amount).filter((value) => value > 0);
   if (values.length === 0) return 0;
   return Math.max(...values);

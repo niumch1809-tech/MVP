@@ -43,6 +43,12 @@ export type CanonicalBomRow = {
   manualCategory?: string;
   manualMatchKey?: string;
   manualName?: string;
+  classificationReference?: {
+    profileId: string;
+    profileName: string;
+    structureConfidence: number;
+    rule: string;
+  };
   unit: string;
   quantity: number;
   unitPrice: number;
