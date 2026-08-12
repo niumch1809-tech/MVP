@@ -103,10 +103,16 @@ const aliases: Record<BomFieldKey, string[]> = {
 };
 
 export function mapHeader(headers: string[]): BomFieldMapping {
-  const normalizedHeaders = headers.map((header) => ({
-    original: header,
-    normalized: normalizeHeader(header)
-  }));
+  // Excel rows can be sparse when a formatted table contains blank columns.
+  // Array#find visits those holes as `undefined`, so build a dense header list
+  // before matching instead of assuming every array position contains a value.
+  const normalizedHeaders = Array.from({ length: headers.length }, (_, index) => {
+    const original = String(headers[index] ?? "");
+    return {
+      original,
+      normalized: normalizeHeader(original)
+    };
+  });
 
   const result: BomFieldMapping = {};
   for (const [field, candidates] of Object.entries(aliases) as Array<[BomFieldKey, string[]]>) {
@@ -122,7 +128,7 @@ export function mapHeader(headers: string[]): BomFieldMapping {
 }
 
 export function scoreHeaderRow(cells: unknown[]): number {
-  const headers = cells.map((cell) => String(cell ?? ""));
+  const headers = Array.from({ length: cells.length }, (_, index) => String(cells[index] ?? ""));
   const mapping = mapHeader(headers);
   return Object.keys(mapping).length;
 }

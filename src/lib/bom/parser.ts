@@ -302,8 +302,8 @@ function findHeaderRow(matrix: unknown[][]): number {
 
 function makeUniqueHeaders(cells: unknown[]): string[] {
   const used = new Map<string, number>();
-  return cells.map((cell, index) => {
-    const base = String(cell ?? "").trim() || `未命名列${index + 1}`;
+  return Array.from({ length: cells.length }, (_, index) => {
+    const base = String(cells[index] ?? "").trim() || `未命名列${index + 1}`;
     const count = used.get(base) ?? 0;
     used.set(base, count + 1);
     return count === 0 ? base : `${base}_${count + 1}`;
