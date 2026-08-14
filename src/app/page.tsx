@@ -10,6 +10,8 @@ import type { ManualGroup } from "@/components/ManualAdjustmentBoard";
 import { MaterialPriceWarningPanel } from "@/components/MaterialPriceWarningPanel";
 import { PdfExportButton } from "@/components/PdfExportButton";
 import { PrintableMultiCostReport } from "@/components/PrintableCostReport";
+import { QuotePoolManager } from "@/components/QuotePoolManager";
+import type { QuotePoolItem } from "@/components/QuotePoolManager";
 import { ResultReport } from "@/components/ResultReport";
 import { SingleBomAnalysis } from "@/components/SingleBomAnalysis";
 import { WorkspaceInteractionLayer } from "@/components/WorkspaceInteractionLayer";
@@ -38,6 +40,7 @@ const LOCAL_MANUAL_CATEGORIES_KEY = "ai-cost-audit:manual-categories";
 const LOCAL_MANUAL_GROUPS_KEY = "ai-cost-audit:manual-groups";
 const LOCAL_SUPPLIER_ALIASES_KEY = "ai-cost-audit:supplier-chart-aliases";
 const LOCAL_CLASSIFICATION_PROFILES_KEY = "ai-cost-audit:classification-profiles:v1";
+const LOCAL_ACTIVE_QUOTE_POOL_KEY = "ai-cost-audit:active-quote-pool:v1";
 
 type DetailSelection = {
   title: string;
@@ -133,15 +136,27 @@ export default function Home() {
   const [isSummaryEntryOpen, setIsSummaryEntryOpen] = useState(false);
   const [supplierAliases, setSupplierAliases] = useState<Record<string, string>>({});
   const [classificationProfiles, setClassificationProfiles] = useState<BomClassificationProfile[]>([]);
+  const [activeQuoteLabels, setActiveQuoteLabels] = useState<string[]>([]);
+  const [isQuotePoolOpen, setIsQuotePoolOpen] = useState(false);
   const [, startFilterTransition] = useTransition();
 
   const rows = useMemo(() => records.flatMap((record) => record.rows), [records]);
-  const quoteRows = useMemo(() => rows.filter((row) => row.kind === "supplier_quote"), [rows]);
+  const allQuoteRows = useMemo(() => rows.filter((row) => row.kind === "supplier_quote"), [rows]);
+  const quotePoolItems = useMemo(() => buildQuotePoolItems(allQuoteRows), [allQuoteRows]);
+  const availableQuoteLabelSet = useMemo(() => new Set(quotePoolItems.map((item) => item.label)), [quotePoolItems]);
+  const activeQuoteLabelSet = useMemo(
+    () => new Set(activeQuoteLabels.filter((label) => availableQuoteLabelSet.has(label))),
+    [activeQuoteLabels, availableQuoteLabelSet]
+  );
+  const quoteRows = useMemo(
+    () => allQuoteRows.filter((row) => activeQuoteLabelSet.has(getComparisonObjectLabel(row))),
+    [activeQuoteLabelSet, allQuoteRows]
+  );
   const deferredFilters = useDeferredValue(filters);
-  const comparison = useMemo(() => buildCostComparison(rows, deferredFilters), [rows, deferredFilters]);
+  const comparison = useMemo(() => buildCostComparison(quoteRows, deferredFilters), [quoteRows, deferredFilters]);
   const categoryOptions = useMemo(
-    () => buildCategoryOptionsForFilters(rows, filters),
-    [filters, rows]
+    () => buildCategoryOptionsForFilters(quoteRows, filters),
+    [filters, quoteRows]
   );
   const issueRows = useMemo(
     () => comparison.filteredRows.filter((row) => row.dataIssues.length > 0),
@@ -157,7 +172,9 @@ export default function Home() {
     [marketPriceResult]
   );
   const refresh = useCallback(() => {
-    setRecords(loadLocalRecords());
+    const nextRecords = loadLocalRecords();
+    setRecords(nextRecords);
+    setActiveQuoteLabels(loadActiveQuotePool(nextRecords));
     setManualCategories(loadLocalArray<string>(LOCAL_MANUAL_CATEGORIES_KEY));
     setManualGroups(loadLocalArray<ManualGroup>(LOCAL_MANUAL_GROUPS_KEY));
     setClassificationProfiles(loadLocalArray<BomClassificationProfile>(LOCAL_CLASSIFICATION_PROFILES_KEY));
@@ -181,6 +198,17 @@ export default function Home() {
 
   function toggleSidebar() {
     setIsSidebarOpen((current) => !current);
+  }
+
+  function updateActiveQuotePool(labels: string[]) {
+    const availableLabels = new Set(quotePoolItems.map((item) => item.label));
+    const nextLabels = Array.from(new Set(labels.filter((label) => availableLabels.has(label))));
+    saveLocalArray(LOCAL_ACTIVE_QUOTE_POOL_KEY, nextLabels);
+    setActiveQuoteLabels(nextLabels);
+    const nextRows = allQuoteRows.filter((row) => nextLabels.includes(getComparisonObjectLabel(row)));
+    setFilters((current) => reconcileFilters(current, nextRows));
+    setDetailSelection(null);
+    setFocusedDetail(null);
   }
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
@@ -227,8 +255,15 @@ export default function Home() {
       setRecords(nextRecords);
       setProductName("");
       setSupplierName("");
-      setFilters(reconcileFilters(filters, nextRecords));
-      setActiveView(kind === "supplier_quote" ? "adjust" : "upload");
+      const nextQuoteRows = nextRecords.flatMap((record) => record.rows).filter((row) => row.kind === "supplier_quote");
+      const retainedActiveLabels = activeQuoteLabels.filter((label) =>
+        nextQuoteRows.some((row) => getComparisonObjectLabel(row) === label)
+      );
+      saveLocalArray(LOCAL_ACTIVE_QUOTE_POOL_KEY, retainedActiveLabels);
+      setActiveQuoteLabels(retainedActiveLabels);
+      setFilters(reconcileFilters(filters, nextQuoteRows.filter((row) => retainedActiveLabels.includes(getComparisonObjectLabel(row)))));
+      setActiveView("upload");
+      if (kind === "supplier_quote") setIsQuotePoolOpen(true);
     }
 
     setFiles([]);
@@ -237,7 +272,9 @@ export default function Home() {
 
   function handleClear() {
     saveLocalRecords([]);
+    saveLocalArray(LOCAL_ACTIVE_QUOTE_POOL_KEY, []);
     setRecords([]);
+    setActiveQuoteLabels([]);
     setMessage("已清空本地解析结果。");
     setUploadErrors([]);
     setDetailSelection(null);
@@ -246,9 +283,14 @@ export default function Home() {
 
   function handleDeleteRecord(recordId: string) {
     const nextRecords = records.filter((record) => record.id !== recordId);
+    const nextQuoteRows = nextRecords.flatMap((record) => record.rows).filter((row) => row.kind === "supplier_quote");
+    const nextAvailableLabels = new Set(nextQuoteRows.map(getComparisonObjectLabel));
+    const nextActiveLabels = activeQuoteLabels.filter((label) => nextAvailableLabels.has(label));
     saveLocalRecords(nextRecords);
+    saveLocalArray(LOCAL_ACTIVE_QUOTE_POOL_KEY, nextActiveLabels);
     setRecords(nextRecords);
-    setFilters((current) => reconcileFilters(current, nextRecords));
+    setActiveQuoteLabels(nextActiveLabels);
+    setFilters((current) => reconcileFilters(current, nextQuoteRows.filter((row) => nextActiveLabels.includes(getComparisonObjectLabel(row)))));
     setMessage("已删除该文件的解析记录。");
     setUploadErrors([]);
     setDetailSelection(null);
@@ -706,6 +748,17 @@ export default function Home() {
               >
                 页面说明
               </button>
+              <button
+                type="button"
+                onClick={() => setIsQuotePoolOpen(true)}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-[10px] border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 transition hover:border-sky-300 hover:bg-sky-100"
+                title="选择本次要整理、比较和导出的 BOM"
+              >
+                <span>本次核价</span>
+                <strong className="rounded-full bg-white px-2 py-0.5 tabular-nums text-sky-700 ring-1 ring-sky-100">
+                  {activeQuoteLabelSet.size}/{quotePoolItems.length}
+                </strong>
+              </button>
               {(activeView === "single" || activeView === "compare") && (
                 <PdfExportButton
                   targetId={activeView === "single" ? "single-cost-pdf-report" : "multi-cost-pdf-report"}
@@ -731,6 +784,30 @@ export default function Home() {
               ))}
             </ol>
           </DetailsDialog>
+          <QuotePoolManager
+            open={isQuotePoolOpen}
+            items={quotePoolItems}
+            selectedLabels={[...activeQuoteLabelSet]}
+            onChange={updateActiveQuotePool}
+            onClose={() => setIsQuotePoolOpen(false)}
+          />
+
+          {activeView !== "upload" && quoteRows.length === 0 && (
+            <section className="app-surface reveal-in grid min-h-[280px] place-items-center rounded-[20px] p-8 text-center">
+              <div className="max-w-md">
+                <span className="inline-flex rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">本次核价</span>
+                <h3 className="mt-4 text-2xl font-semibold text-slate-950">先选择这次要处理的 BOM</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-500">全部已导入文件仍然保留。选择本次需要整理、比较或导出的报价后，这里才会显示对应内容。</p>
+                <button
+                  type="button"
+                  onClick={() => setIsQuotePoolOpen(true)}
+                  className="button-primary mt-5 rounded-[12px] px-5 py-2.5 text-sm font-semibold"
+                >
+                  选择 BOM
+                </button>
+              </div>
+            </section>
+          )}
 
           {activeView === "upload" && (
             <UploadView
@@ -742,18 +819,21 @@ export default function Home() {
               uploadErrors={uploadErrors}
               isUploading={isUploading}
               records={records}
+              quotePoolItems={quotePoolItems}
+              activeQuoteLabels={[...activeQuoteLabelSet]}
               classificationProfileCount={classificationProfiles.length}
               onClear={handleClear}
               onDeleteRecord={handleDeleteRecord}
               onFilesChange={setFiles}
               onKindChange={setKind}
+              onOpenQuotePool={() => setIsQuotePoolOpen(true)}
               onProductNameChange={setProductName}
               onSupplierNameChange={setSupplierName}
               onSubmit={handleUpload}
             />
           )}
 
-          {activeView === "compare" && (
+          {activeView === "compare" && quoteRows.length > 0 && (
             <>
               <FilterPanel
                 categoryOptions={categoryOptions}
@@ -797,7 +877,7 @@ export default function Home() {
             </>
           )}
 
-          {activeView === "adjust" && (
+          {activeView === "adjust" && quoteRows.length > 0 && (
             <ManualAdjustmentBoard
               rows={quoteRows}
               categories={[...comparison.categories, ...manualCategories]}
@@ -807,7 +887,7 @@ export default function Home() {
             />
           )}
 
-          {activeView === "align" && (
+          {activeView === "align" && quoteRows.length > 0 && (
             <MaterialAlignmentBoard
               rows={quoteRows}
               categories={[...comparison.categories, ...manualCategories]}
@@ -815,7 +895,7 @@ export default function Home() {
             />
           )}
 
-          {activeView === "single" && (
+          {activeView === "single" && quoteRows.length > 0 && (
             <div className="min-w-0">
               <SingleBomAnalysis
                 rows={quoteRows}
@@ -827,7 +907,7 @@ export default function Home() {
             </div>
           )}
 
-          {activeView === "details" && (
+          {activeView === "details" && quoteRows.length > 0 && (
             <>
               <FilterPanel
                 categoryOptions={categoryOptions}
@@ -894,7 +974,7 @@ export default function Home() {
             </>
           )}
 
-          {activeView === "output" && (
+          {activeView === "output" && quoteRows.length > 0 && (
             <section className="reveal-in grid min-w-0 max-w-full gap-4 overflow-hidden">
               <div className="app-surface rounded-[20px] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1284,9 +1364,57 @@ function getRecordSourceKey(record: BomFileRecord): string {
   return record.sourceSignature || [record.kind, record.fileName, record.productName, record.supplierName].join("::");
 }
 
-function reconcileFilters(filters: CostFilters, records: BomFileRecord[]): CostFilters {
-  const products = new Set(records.flatMap((record) => record.rows.map((row) => row.productName).filter(Boolean)));
-  const suppliers = new Set(records.flatMap((record) => record.rows.map(getComparisonObjectLabel).filter(Boolean)));
+function loadActiveQuotePool(records: BomFileRecord[]): string[] {
+  const availableLabels = Array.from(
+    new Set(
+      records
+        .flatMap((record) => record.rows)
+        .filter((row) => row.kind === "supplier_quote")
+        .map(getComparisonObjectLabel)
+        .filter(Boolean)
+    )
+  );
+  if (typeof window === "undefined") return availableLabels;
+  const raw = window.localStorage.getItem(LOCAL_ACTIVE_QUOTE_POOL_KEY);
+  if (raw === null) {
+    saveLocalArray(LOCAL_ACTIVE_QUOTE_POOL_KEY, availableLabels);
+    return availableLabels;
+  }
+  try {
+    const saved = JSON.parse(raw) as unknown;
+    if (!Array.isArray(saved)) return availableLabels;
+    const availableSet = new Set(availableLabels);
+    return Array.from(new Set(saved.filter((label): label is string => typeof label === "string" && availableSet.has(label))));
+  } catch {
+    return availableLabels;
+  }
+}
+
+function buildQuotePoolItems(rows: CanonicalBomRow[]): QuotePoolItem[] {
+  const items = new Map<string, QuotePoolItem>();
+  rows.forEach((row) => {
+    const label = getComparisonObjectLabel(row);
+    const productLabel = [row.productName, row.productModel, row.productColor].map((value) => value?.trim() ?? "").filter(Boolean).join(" ");
+    const current = items.get(label);
+    if (current) {
+      current.rowCount += 1;
+      if (row.sourceFileName && !current.fileNames.includes(row.sourceFileName)) current.fileNames.push(row.sourceFileName);
+      return;
+    }
+    items.set(label, {
+      label,
+      supplierName: row.supplierName || "未命名供应商",
+      productLabel,
+      fileNames: row.sourceFileName ? [row.sourceFileName] : [],
+      rowCount: 1
+    });
+  });
+  return [...items.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+}
+
+function reconcileFilters(filters: CostFilters, rows: CanonicalBomRow[]): CostFilters {
+  const products = new Set(rows.map((row) => row.productName).filter(Boolean));
+  const suppliers = new Set(rows.map(getComparisonObjectLabel).filter(Boolean));
   return {
     ...filters,
     productName: !filters.productName || products.has(filters.productName) ? filters.productName : "",
@@ -1335,11 +1463,14 @@ function UploadView({
   uploadErrors,
   isUploading,
   records,
+  quotePoolItems,
+  activeQuoteLabels,
   classificationProfileCount,
   onClear,
   onDeleteRecord,
   onFilesChange,
   onKindChange,
+  onOpenQuotePool,
   onProductNameChange,
   onSupplierNameChange,
   onSubmit
@@ -1352,11 +1483,14 @@ function UploadView({
   uploadErrors: UploadBomResponse["errors"];
   isUploading: boolean;
   records: BomFileRecord[];
+  quotePoolItems: QuotePoolItem[];
+  activeQuoteLabels: string[];
   classificationProfileCount: number;
   onClear: () => void;
   onDeleteRecord: (recordId: string) => void;
   onFilesChange: (files: File[]) => void;
   onKindChange: (kind: BomFileKind) => void;
+  onOpenQuotePool: () => void;
   onProductNameChange: (value: string) => void;
   onSupplierNameChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -1395,6 +1529,35 @@ function UploadView({
           </div>
         </div>
         {isGuideOpen && <UserGuideModal onClose={() => setIsGuideOpen(false)} />}
+      </section>
+      <section className="app-surface rounded-[20px] p-4 xl:col-span-2">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="type-panel-title text-ink">本次核价工作区</h3>
+              <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-100">
+                {activeQuoteLabels.length} / {quotePoolItems.length} 份
+              </span>
+            </div>
+            <p className="type-caption mt-1 text-slate-500">全部 BOM 长期保留；整理、对齐、分析、明细和导出只使用本次选中的报价。</p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenQuotePool}
+            className="button-primary motion-lift shrink-0 rounded-[12px] px-5 py-2.5 text-sm font-semibold"
+          >
+            选择本次 BOM
+          </button>
+        </div>
+        <div className="mt-3 flex min-h-9 flex-wrap items-center gap-2">
+          {activeQuoteLabels.slice(0, 8).map((label) => (
+            <span key={label} className="max-w-[260px] truncate rounded-[10px] bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200" title={label}>
+              {label}
+            </span>
+          ))}
+          {activeQuoteLabels.length > 8 && <span className="text-xs text-slate-400">另有 {activeQuoteLabels.length - 8} 份</span>}
+          {activeQuoteLabels.length === 0 && <span className="text-xs text-slate-400">尚未选择，导入后可从全部 BOM 中加入本次核价。</span>}
+        </div>
       </section>
       <form onSubmit={onSubmit} className="app-surface rounded-[20px] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
